@@ -166,11 +166,12 @@ def transaction_dict(transaction: Transaction) -> dict[str, Any]:
     }
 
 
-def dataframe_for(db: Session) -> pd.DataFrame:
-    return Repository(db).get_all_transactions_df()
+def dataframe_for(db: Session, user: User) -> pd.DataFrame:
+    query = db.query(Transaction).filter(Transaction.user_id == user.id)
+    return pd.read_sql(query.statement, db.bind)
 
 
-def load_dataframe(db: Session, frame: pd.DataFrame) -> dict[str, Any]:
+def load_dataframe(db: Session, frame: pd.DataFrame, user: User) -> dict[str, Any]:
     cleaned, report = DataCleaner.clean_data(frame)
     used_ids: set[str] = set()
     transactions = []
@@ -189,21 +190,16 @@ def load_dataframe(db: Session, frame: pd.DataFrame) -> dict[str, Any]:
             payment_method=str(row.get("payment_method", "Other")),
             merchant=str(row.get("merchant", "")),
             notes=str(row.get("notes", "")),
+            user_id=user.id,
         ))
     repo = Repository(db)
-    repo.clear_all_transactions()
+    db.query(Transaction).filter(Transaction.user_id == user.id).delete()
     repo.bulk_add_transactions(transactions)
     return {"imported": len(transactions), "report": report}
 
 
 def ensure_demo_data() -> None:
     init_db()
-    db = SessionLocal()
-    try:
-        if db.query(Transaction).count() == 0 and os.path.exists(DEMO_DATA_PATH):
-            load_dataframe(db, pd.read_csv(DEMO_DATA_PATH))
-    finally:
-        db.close()
 
 
 @app.on_event("startup")
@@ -243,7 +239,7 @@ def me(user: User = Depends(current_user)) -> UserResponse:
 
 @app.get("/api/dashboard")
 def dashboard(db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
-    frame = dataframe_for(db)
+    frame = dataframe_for(db, user)
     if frame.empty:
         return {"income": 0, "expenses": 0, "savings": 0, "savings_rate": 0, "monthly": [], "categories": [], "recent_transactions": []}
     frame["date"] = pd.to_datetime(frame["date"])
@@ -260,7 +256,7 @@ def dashboard(db: Session = Depends(get_db), user: User = Depends(current_user))
 
 @app.get("/api/transactions", response_model=list[TransactionResponse])
 def transactions(db: Session = Depends(get_db), user: User = Depends(current_user), search: Optional[str] = Query(default=None), transaction_type: Optional[str] = Query(default=None, alias="type"), category: Optional[str] = None) -> list[Transaction]:
-    query = db.query(Transaction).filter((Transaction.user_id == user.id) | Transaction.user_id.is_(None)).order_by(Transaction.date.desc())
+    query = db.query(Transaction).filter(Transaction.user_id == user.id).order_by(Transaction.date.desc())
     if transaction_type:
         query = query.filter(Transaction.type == transaction_type)
     if category:
@@ -300,14 +296,14 @@ def delete_transaction(transaction_id: str, db: Session = Depends(get_db), user:
 
 @app.get("/api/analytics/expenses")
 def expense_analytics(db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
-    frame = dataframe_for(db)
+    frame = dataframe_for(db, user)
     expenses = frame[frame["type"] == "Expense"] if not frame.empty else frame
     return {"total": float(expenses["amount"].sum()) if not expenses.empty else 0, "by_category": [{"category": category, "amount": float(amount)} for category, amount in expenses.groupby("category")["amount"].sum().sort_values(ascending=False).items()]}
 
 
 @app.get("/api/analytics/income")
 def income_analytics(db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
-    frame = dataframe_for(db)
+    frame = dataframe_for(db, user)
     income = frame[frame["type"] == "Income"] if not frame.empty else frame
     return {"total": float(income["amount"].sum()) if not income.empty else 0, "by_category": [{"category": category, "amount": float(amount)} for category, amount in income.groupby("category")["amount"].sum().items()]}
 
@@ -325,7 +321,7 @@ def monthly_analytics(db: Session = Depends(get_db), user: User = Depends(curren
 
 @app.get("/api/analytics/statistics")
 def statistics(db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
-    frame = dataframe_for(db)
+    frame = dataframe_for(db, user)
     expenses = frame.loc[frame["type"] == "Expense", "amount"] if not frame.empty else pd.Series(dtype=float)
     return {"average_expense": float(expenses.mean()) if not expenses.empty else 0, "median_expense": float(expenses.median()) if not expenses.empty else 0, "largest_expense": float(expenses.max()) if not expenses.empty else 0, "transaction_count": int(len(frame))}
 
@@ -363,7 +359,7 @@ def update_budget(budget_id: int, payload: BudgetCreate, db: Session = Depends(g
 
 @app.get("/api/insights")
 def insights(db: Session = Depends(get_db), user: User = Depends(current_user)) -> list[dict[str, Any]]:
-    return InsightEngine.generate_insights(dataframe_for(db))
+    return InsightEngine.generate_insights(dataframe_for(db, user))
 
 
 @app.post("/api/import/csv")
@@ -377,12 +373,12 @@ async def import_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
     valid, report = DataValidator.validate_csv(frame)
     if not valid:
         raise HTTPException(status_code=422, detail=report)
-    return load_dataframe(db, frame)
+    return load_dataframe(db, frame, user)
 
 
 @app.get("/api/export/csv")
 def export_csv(db: Session = Depends(get_db), user: User = Depends(current_user)) -> StreamingResponse:
-    frame = dataframe_for(db)
+    frame = dataframe_for(db, user)
     stream = io.StringIO()
     frame.to_csv(stream, index=False)
     stream.seek(0)
