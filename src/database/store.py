@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from datetime import date
 from typing import Any
@@ -59,9 +60,10 @@ class MongoStore:
         if category:
             query["category"] = category
         if search:
+            safe_search = re.escape(search)
             query["$or"] = [
-                {"description": {"$regex": search, "$options": "i"}},
-                {"merchant": {"$regex": search, "$options": "i"}},
+                {"description": {"$regex": safe_search, "$options": "i"}},
+                {"merchant": {"$regex": safe_search, "$options": "i"}},
             ]
         return list(self.transactions.find(query, {"_id": 0}).sort("date", -1))
 

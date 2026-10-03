@@ -4,6 +4,7 @@ import numpy as np
 from src.data.cleaner import DataCleaner
 from src.data.validator import DataValidator
 from src.analytics.health_score import HealthScoreCalculator
+from src.ml.forecasting import ExpenseForecaster
 
 def test_data_validator():
     df_valid = pd.DataFrame({
@@ -33,8 +34,9 @@ def test_data_cleaner():
     
     df_clean, report = DataCleaner.clean_data(df_raw)
     
-    # Should remove 1 duplicate, 1 invalid date
-    assert len(df_clean) == 1
+    # Invalid rows are removed, while identical-looking transactions survive
+    # because two real purchases can share date, description, and amount.
+    assert len(df_clean) == 2
     assert df_clean.iloc[0]['amount'] == 100.0
     assert 'transaction_id' in df_clean.columns
 
@@ -54,3 +56,20 @@ def test_health_score():
     
     res = HealthScoreCalculator.calculate_score(df)
     assert res['score'] > 80 # Should be a very high score
+
+
+def test_forecaster_keeps_completed_historical_month():
+    dates = pd.date_range("2023-01-01", periods=6, freq="MS")
+    frame = pd.DataFrame({
+        "date": dates + pd.Timedelta(days=10),
+        "type": ["Expense"] * 6,
+        "amount": [100, 110, 120, 130, 140, 150],
+    })
+
+    result, message = ExpenseForecaster().forecast_next_months(frame)
+
+    assert message == "Forecast generated successfully."
+    historical, forecast, metrics = result
+    assert len(historical) == 6
+    assert len(forecast) == 3
+    assert "three_month_average_mae" in metrics

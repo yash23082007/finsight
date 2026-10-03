@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Date, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Numeric, Date, Text, ForeignKey
 from .connection import Base
 
 class Transaction(Base):
@@ -7,7 +7,7 @@ class Transaction(Base):
     id = Column(String, primary_key=True, index=True)
     date = Column(Date, index=True)
     description = Column(String, index=True)
-    amount = Column(Float)
+    amount = Column(Numeric(12, 2))
     type = Column(String, index=True)
     category = Column(String, index=True)
     payment_method = Column(String)
@@ -20,7 +20,7 @@ class Budget(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     category = Column(String, index=True)
-    amount = Column(Float)
+    amount = Column(Numeric(12, 2))
     month_year = Column(String, index=True) # Format: YYYY-MM
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 

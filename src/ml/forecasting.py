@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from datetime import date
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
@@ -16,8 +17,13 @@ class ExpenseForecaster:
 
         df_exp['date'] = pd.to_datetime(df_exp['date'])
         
-        # Aggregate by month
+        # Aggregate by month and exclude only the current calendar month,
+        # which may be incomplete. Historical months remain valid even when
+        # their final transaction is before month-end.
         monthly = df_exp.resample('ME', on='date')['amount'].sum().reset_index()
+        current_month = pd.Timestamp(date.today()).to_period("M")
+        if not monthly.empty and monthly["date"].max().to_period("M") == current_month:
+            monthly = monthly.iloc[:-1]
         
         if len(monthly) < 6:
             return None, "Insufficient historical data. Need at least 6 months."
@@ -30,12 +36,23 @@ class ExpenseForecaster:
 
         self.model.fit(X, y)
         
-        # Predictions for historical to calculate metrics
+        # In-sample metrics are descriptive only; rolling metrics compare against
+        # baselines so a straight line is not presented as validated performance.
         y_pred = self.model.predict(X)
+        residual_std = float(np.std(y - y_pred, ddof=1)) if len(y) > 1 else 0.0
+        naive_errors = []
+        average_errors = []
+        for index in range(3, len(monthly)):
+            history = monthly["amount"].iloc[:index]
+            actual = monthly["amount"].iloc[index]
+            naive_errors.append(abs(actual - history.iloc[-1]))
+            average_errors.append(abs(actual - history.iloc[-3:].mean()))
         self.metrics = {
             'MAE': mean_absolute_error(y, y_pred),
             'RMSE': np.sqrt(mean_squared_error(y, y_pred)),
-            'R2': r2_score(y, y_pred)
+            'R2': r2_score(y, y_pred),
+            'naive_mae': float(np.mean(naive_errors)) if naive_errors else None,
+            'three_month_average_mae': float(np.mean(average_errors)) if average_errors else None,
         }
 
         # Forecast
@@ -47,10 +64,14 @@ class ExpenseForecaster:
         future_dates = pd.date_range(start=last_date, periods=months_ahead + 1, freq='ME')[1:]
         
         preds = self.model.predict(future_idx)
+        lower = np.maximum(0, preds - 1.96 * residual_std)
+        upper = np.maximum(0, preds + 1.96 * residual_std)
         
         forecast_df = pd.DataFrame({
             'date': future_dates,
-            'predicted_amount': np.maximum(0, preds)  # Ensure non-negative
+            'predicted_amount': np.maximum(0, preds),
+            'lower_bound': lower,
+            'upper_bound': upper,
         })
         forecast_df['date'] = forecast_df['date'].dt.strftime('%b %Y')
         

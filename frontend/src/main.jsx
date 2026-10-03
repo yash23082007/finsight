@@ -44,16 +44,15 @@ const compactCurrency = new Intl.NumberFormat('en-IN', { notation: 'compact', ma
 
 function Root() {
   const [user, setUser] = useState(null);
-  const [checking, setChecking] = useState(Boolean(localStorage.getItem('finsight_token')));
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    if (!localStorage.getItem('finsight_token')) return;
-    api.get('/auth/me').then((response) => setUser(response.data)).catch(() => localStorage.removeItem('finsight_token')).finally(() => setChecking(false));
+    api.get('/auth/me').then((response) => setUser(response.data)).catch(() => setUser(null)).finally(() => setChecking(false));
   }, []);
 
   if (checking) return <div className="auth-shell"><div className="auth-card"><div className="brand"><span className="brand-mark">F</span><span>finsight</span></div><p>Loading your secure workspace...</p></div></div>;
   if (!user) return <AuthScreen onAuthenticated={setUser} />;
-  return <App user={user} onLogout={() => { localStorage.removeItem('finsight_token'); setUser(null); }} />;
+  return <App user={user} onLogout={() => api.post('/auth/logout').finally(() => setUser(null))} />;
 }
 
 function AuthScreen({ onAuthenticated }) {
@@ -65,7 +64,6 @@ function AuthScreen({ onAuthenticated }) {
     event.preventDefault();
     setBusy(true); setError('');
     api.post(`/auth/${mode}`, form).then((response) => {
-      localStorage.setItem('finsight_token', response.data.token);
       onAuthenticated(response.data.user);
     }).catch((requestError) => setError(requestError.response?.data?.detail || 'Unable to authenticate. Please try again.')).finally(() => setBusy(false));
   };
@@ -106,6 +104,7 @@ function App({ user, onLogout }) {
   useEffect(() => { loadTransactions(); }, []);
 
   const addTransaction = (payload) => api.post('/transactions', payload).then(() => { setShowTransactionForm(false); loadTransactions(); });
+  const loadSampleData = () => api.post('/import/sample').then(loadTransactions);
   const removeTransaction = (id) => { if (window.confirm('Delete this transaction?')) api.delete(`/transactions/${id}`).then(loadTransactions); };
 
   const filteredTransactions = useMemo(() => {
@@ -187,7 +186,7 @@ function App({ user, onLogout }) {
             <section className="chart-grid"><div className="panel trend-panel"><PanelHeading title="Cash flow" subtitle="Income and expenses over time" action={<select value={dateRange} onChange={(event) => setDateRange(event.target.value)}><option>Last 6 months</option><option>Last 12 months</option></select>} /><div className="chart-legend"><span><i className="legend-income" />Income</span><span><i className="legend-expenses" />Expenses</span></div><div className="chart-area"><ResponsiveContainer width="100%" height="100%"><AreaChart data={monthlyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}><defs><linearGradient id="incomeFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#2f6f68" stopOpacity={0.2} /><stop offset="100%" stopColor="#2f6f68" stopOpacity={0} /></linearGradient><linearGradient id="expenseFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#d95d39" stopOpacity={0.14} /><stop offset="100%" stopColor="#d95d39" stopOpacity={0} /></linearGradient></defs><CartesianGrid vertical={false} stroke="#e9e9e3" /><XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#8b918b', fontSize: 12 }} /><YAxis axisLine={false} tickLine={false} tick={{ fill: '#8b918b', fontSize: 11 }} tickFormatter={(value) => `₹${compactCurrency.format(value)}`} /><Tooltip formatter={(value) => currency.format(value)} contentStyle={{ border: '1px solid #e5e6df', borderRadius: 8, boxShadow: '0 8px 20px #26352a14' }} /><Area type="monotone" dataKey="income" stroke="#2f6f68" strokeWidth={2.5} fill="url(#incomeFill)" /><Area type="monotone" dataKey="expenses" stroke="#d95d39" strokeWidth={2.5} fill="url(#expenseFill)" /></AreaChart></ResponsiveContainer></div></div><div className="panel category-panel"><PanelHeading title="Where your money goes" subtitle="Spending by category" action={<button className="text-button" onClick={() => navigate('/expense-analysis')}>View details <ArrowUpRight size={14} /></button>} /><div className="donut-wrap"><ResponsiveContainer width="52%" height="100%"><PieChart><Pie data={categoryData} dataKey="value" nameKey="name" innerRadius={66} outerRadius={93} paddingAngle={3} stroke="none">{categoryData.map((entry, index) => <Cell key={entry.name} fill={COLORS[index % COLORS.length]} />)}</Pie><Tooltip formatter={(value) => currency.format(value)} /></PieChart></ResponsiveContainer><div className="category-list">{categoryData.slice(0, 5).map((category, index) => <div className="category-row" key={category.name}><span><i style={{ background: COLORS[index % COLORS.length] }} />{category.name}</span><strong>{currency.format(category.value)}</strong></div>)}</div></div></div></section>
 
             <section className="bottom-grid"><div className="panel transactions-panel"><PanelHeading title="Recent transactions" subtitle="Your latest activity" action={<button className="text-button" onClick={() => navigate('/transactions')}>See all <ArrowUpRight size={14} /></button>} /><div className="transaction-list">{recentTransactions.map((transaction) => <div className="transaction-row" key={transaction.id}><div className={`transaction-icon ${transaction.type.toLowerCase()}`}>{transaction.type === 'Income' ? <ArrowDownRight size={17} /> : <ArrowUpRight size={17} />}</div><div className="transaction-main"><strong>{transaction.merchant || transaction.description}</strong><span>{transaction.category} · {transaction.date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span></div><strong className={transaction.type === 'Income' ? 'income-text' : ''}>{transaction.type === 'Income' ? '+' : '-'}{currency.format(transaction.amount)}</strong></div>)}</div></div><div className="panel insight-panel"><div className="insight-orbit"><Sparkles size={20} /></div><p className="kicker">Your weekly insight</p><h2>You&apos;re building a healthy savings habit.</h2><p>Your savings rate is <strong>{metrics.rate.toFixed(1)}%</strong> this period. That&apos;s above the recommended 20% target.</p><button className="secondary-button" onClick={() => navigate('/insights')}>Explore insights <ArrowUpRight size={15} /></button></div></section>
-          </> : <FeaturePage view={activeView} transactions={filteredTransactions} onAdd={() => setShowTransactionForm(true)} onDelete={removeTransaction} />}
+          </> : <FeaturePage view={activeView} transactions={filteredTransactions} onAdd={() => setShowTransactionForm(true)} onDelete={removeTransaction} onLoadSample={loadSampleData} />}
           <footer className="disclaimer">FinSight is an educational financial analysis tool. It does not provide financial advice.</footer>
         </div>
       </main>
@@ -218,7 +217,7 @@ function pathForView(view) {
   return VIEW_ROUTES[view] || '/';
 }
 
-function FeaturePage({ view, transactions, onAdd, onDelete }) {
+function FeaturePage({ view, transactions, onAdd, onDelete, onLoadSample }) {
   const expenses = transactions.filter((item) => item.type === 'Expense');
   const income = transactions.filter((item) => item.type === 'Income');
   const totalExpenses = expenses.reduce((sum, item) => sum + item.amount, 0);
@@ -233,7 +232,7 @@ function FeaturePage({ view, transactions, onAdd, onDelete }) {
     'Import Data': 'Bring in a CSV export and let the validation and cleaning pipeline do the work.',
     Settings: 'Manage your workspace preferences and data connection.',
   };
-  return <div className="feature-view"><div className="feature-hero"><div><p className="kicker">FinSight workspace</p><h2>{view}</h2><p>{descriptions[view]}</p></div><button className="secondary-button" onClick={() => { window.location.hash = '/settings'; }}><Settings size={15} /> Configure view</button></div>{view === 'Transactions' ? <div className="panel transactions-panel"><PanelHeading title="All transactions" subtitle={`${transactions.length} records in the current period`} action={<button className="primary-button" onClick={onAdd}><Plus size={15} /> Add transaction</button>} /><div className="transaction-list">{transactions.slice(0, 18).map((item) => <div className="transaction-row" key={item.id}><div className={`transaction-icon ${item.type.toLowerCase()}`}>{item.type === 'Income' ? <ArrowDownRight size={17} /> : <ArrowUpRight size={17} />}</div><div className="transaction-main"><strong>{item.merchant || item.description}</strong><span>{item.category} · {item.date.toLocaleDateString('en-IN')}</span></div><strong className={item.type === 'Income' ? 'income-text' : ''}>{item.type === 'Income' ? '+' : '-'}{currency.format(item.amount)}</strong>{item.user_id && <button className="delete-button" onClick={() => onDelete(item.id)} aria-label="Delete transaction">×</button>}</div>)}</div></div> : <><div className="feature-stat-grid"><div className="panel feature-stat"><span>Total income</span><strong>{currency.format(totalIncome)}</strong></div><div className="panel feature-stat"><span>Total expenses</span><strong>{currency.format(totalExpenses)}</strong></div><div className="panel feature-stat"><span>Net savings</span><strong>{currency.format(totalIncome - totalExpenses)}</strong></div></div><div className="panel"><PanelHeading title={view === 'Insights' ? 'What the data says' : 'Category breakdown'} subtitle="Based on the current API dataset" />{categories.slice(0, 8).map(([category, amount], index) => <div className="feature-bar" key={category}><div><span>{category}</span><strong>{currency.format(amount)}</strong></div><i><b style={{ width: `${Math.max(4, (amount / (categories[0]?.[1] || 1)) * 100)}%`, background: COLORS[index % COLORS.length] }} /></i></div>)}</div></>}</div>;
+  return <div className="feature-view"><div className="feature-hero"><div><p className="kicker">FinSight workspace</p><h2>{view}</h2><p>{descriptions[view]}</p></div>{view === 'Import Data' ? <button className="secondary-button" onClick={onLoadSample}><Plus size={15} /> Load synthetic sample</button> : <button className="secondary-button" onClick={() => { window.location.hash = '/settings'; }}><Settings size={15} /> Configure view</button>}</div>{view === 'Transactions' ? <div className="panel transactions-panel"><PanelHeading title="All transactions" subtitle={`${transactions.length} records in the current period`} action={<button className="primary-button" onClick={onAdd}><Plus size={15} /> Add transaction</button>} /><div className="transaction-list">{transactions.slice(0, 18).map((item) => <div className="transaction-row" key={item.id}><div className={`transaction-icon ${item.type.toLowerCase()}`}>{item.type === 'Income' ? <ArrowDownRight size={17} /> : <ArrowUpRight size={17} />}</div><div className="transaction-main"><strong>{item.merchant || item.description}</strong><span>{item.category} · {item.date.toLocaleDateString('en-IN')}</span></div><strong className={item.type === 'Income' ? 'income-text' : ''}>{item.type === 'Income' ? '+' : '-'}{currency.format(item.amount)}</strong>{item.user_id && <button className="delete-button" onClick={() => onDelete(item.id)} aria-label="Delete transaction">×</button>}</div>)}</div></div> : <><div className="feature-stat-grid"><div className="panel feature-stat"><span>Total income</span><strong>{currency.format(totalIncome)}</strong></div><div className="panel feature-stat"><span>Total expenses</span><strong>{currency.format(totalExpenses)}</strong></div><div className="panel feature-stat"><span>Net savings</span><strong>{currency.format(totalIncome - totalExpenses)}</strong></div></div><div className="panel"><PanelHeading title={view === 'Insights' ? 'What the data says' : 'Category breakdown'} subtitle="Based on the current API dataset" />{categories.slice(0, 8).map(([category, amount], index) => <div className="feature-bar" key={category}><div><span>{category}</span><strong>{currency.format(amount)}</strong></div><i><b style={{ width: `${Math.max(4, (amount / (categories[0]?.[1] || 1)) * 100)}%`, background: COLORS[index % COLORS.length] }} /></i></div>)}</div></>}</div>;
 }
 
 function TransactionForm({ onClose, onSubmit }) {

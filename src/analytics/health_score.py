@@ -13,12 +13,16 @@ class HealthScoreCalculator:
         recent_date = df['date'].max()
         start_date = recent_date - pd.DateOffset(months=3)
         recent_df = df[df['date'] > start_date]
+        limited_data = (recent_df['date'].max() - recent_df['date'].min()).days < 42
         
         income = recent_df[recent_df['type'] == 'Income']['amount'].sum()
         expense = recent_df[recent_df['type'] == 'Expense']['amount'].sum()
         
         if income == 0:
-            return {"score": 0, "components": {"savings_rate": 0, "expense_control": 0}, "message": "No income recorded"}
+            message = "No income recorded"
+            if limited_data:
+                message += "; limited data"
+            return {"score": 0, "components": {"savings_rate": 0, "expense_control": 0}, "message": message}
             
         savings_rate = ((income - expense) / income) * 100
         
@@ -46,5 +50,5 @@ class HealthScoreCalculator:
                 "Expense Control": round(er_score / 40 * 100),
                 "Consistency": round(consistency_score / 20 * 100)
             },
-            "message": "Calculated based on the last 3 months."
+            "message": "Calculated based on the last 3 months." + (" Limited data: use cautiously." if limited_data else "")
         }

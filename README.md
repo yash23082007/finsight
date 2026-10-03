@@ -23,7 +23,8 @@ The application is designed for educational and analytical use.
 - **Frontend:** React 18, Vite, React Router, Axios, Recharts, and Lucide React.
 - **API:** FastAPI, Uvicorn, Pydantic, and SQLAlchemy.
 - **Analytics:** Pandas, NumPy, SciPy, and scikit-learn.
-- **Local database:** SQLite.
+- **Database:** SQLite locally, or PostgreSQL/Neon in production. MongoDB is
+  supported only when `MONGODB_URI` is explicitly configured.
 
 ## Project structure
 
@@ -54,7 +55,7 @@ From the project root:
 ```powershell
 python -m venv venv
 .\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
 
 ### Start the API
@@ -80,12 +81,21 @@ The frontend runs at `http://localhost:5173`. During local development, set
 `VITE_API_URL=http://localhost:8000/api` in `frontend/.env.local` if the
 frontend is not using the same-origin Vercel rewrite.
 
+On macOS/Linux, use:
+
+```bash
+python3 -m venv venv
+. venv/bin/activate
+pip install -r requirements-dev.txt
+python -m uvicorn backend.main:app --reload --port 8000
+```
+
 ## Deploy to Vercel
 
 This repository deploys as one Vercel project with two services defined in
 `vercel.json`:
 
-- `app` is the FastAPI service, using `api/index.py`, and is public at `/api/*`.
+- `app` is the FastAPI service, using `main.py`, and is public at `/api/*`.
 - `frontend` is the Vite service and is public at all other paths.
 
 There are no service bindings because the browser calls the API through the
@@ -115,6 +125,13 @@ transactions; users can add records individually or import their own CSV.
 For Neon, use the pooled connection string and add `AUTH_SECRET` as a separate
 Vercel environment variable containing a long random value.
 
+The API rejects authentication when `AUTH_SECRET` is absent or shorter than
+32 characters. Never commit `.env` files or real connection
+strings; `.env.example` contains placeholders only. CSV uploads are limited to
+4 MB and 100,000 rows. Exported text fields are escaped against spreadsheet
+formula injection. Browser sessions use an HttpOnly cookie; the token is not
+stored in localStorage.
+
 ## CSV data
 
 Imported files must include:
@@ -125,8 +142,30 @@ date, description, amount, type
 
 Optional columns are `transaction_id`, `category`, `payment_method`, `merchant`,
 and `notes`. The cleaning pipeline normalizes dates and currency-formatted
-amounts, removes invalid rows and duplicates, and supplies defaults for optional
-fields.
+amounts, removes invalid rows and supplies defaults for optional fields. Import
+reports include the number of rows read, invalid rows, and final rows.
+Identical repeated transactions are preserved; supplied duplicate transaction
+IDs are replaced with generated IDs.
+
+The checked-in `data/raw/synthetic_data.csv` is synthetic demo data, not bank
+data. Amounts are stored as fixed-precision decimals in SQL databases.
+
+## Analytics methodology and limitations
+
+- Categorization uses a TF-IDF/logistic-regression pipeline with balanced
+  classes. Evaluation uses merchant-grouped holdout data to avoid reporting
+  inflated scores from the same merchant appearing in both sets. Predictions
+  below the confidence threshold are returned as **Needs review**.
+- Anomaly detection uses deterministic Isolation Forest features based on
+  `log1p(amount)` and category-relative robust z-scores. It requires at least
+  ten expense rows and reports an explainable typical-spend multiple. It is a
+  review aid, not a fraud detector.
+- Forecasts aggregate completed months only, clamp negative predictions to zero,
+  and report descriptive regression metrics alongside naive and three-month
+  average baselines. At least six completed months are required.
+- The health score is a heuristic weighted across savings rate, expense control,
+  and monthly consistency over the latest three months. It is not a validated
+  financial or credit score.
 
 ## Tests
 

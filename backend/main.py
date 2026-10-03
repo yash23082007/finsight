@@ -13,7 +13,7 @@ from datetime import date
 from typing import Any, Generator, Optional
 
 import pandas as pd
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import Cookie, Depends, FastAPI, File, Header, HTTPException, Query, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,6 +28,8 @@ from src.data.cleaner import DataCleaner
 from src.data.validator import DataValidator
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MAX_UPLOAD_BYTES = 4 * 1024 * 1024
+MAX_UPLOAD_ROWS = 100_000
 
 app = FastAPI(title="FinSight API", version="1.0.0", description="REST API for personal financial analysis")
 app.add_middleware(
@@ -102,7 +104,7 @@ class UserResponse(BaseModel):
 
 
 class AuthResponse(BaseModel):
-    token: str
+    token: Optional[str] = None
     user: UserResponse
 
 
@@ -135,17 +137,42 @@ def password_matches(password: str, stored: str) -> bool:
 def make_token(user: User | dict[str, Any]) -> str:
     user_id = user["id"] if isinstance(user, dict) else user.id
     payload = base64.urlsafe_b64encode(json.dumps({"id": user_id, "exp": int(time.time()) + 30 * 24 * 3600}).encode()).decode().rstrip("=")
-    secret = os.getenv("AUTH_SECRET", "finsight-development-secret").encode()
+    secret = auth_secret()
     signature = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
     return f"{payload}.{signature}"
 
 
-def current_user(authorization: Optional[str] = Header(default=None), db: Session | None = Depends(get_db)) -> User | dict[str, Any]:
-    if not authorization or not authorization.lower().startswith("bearer "):
+def set_auth_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        "finsight_token",
+        token,
+        httponly=True,
+        secure=bool(os.getenv("VERCEL")),
+        samesite="lax",
+        max_age=30 * 24 * 3600,
+    )
+
+
+def auth_secret() -> bytes:
+    value = os.getenv("AUTH_SECRET")
+    if not value or len(value) < 32:
+        raise HTTPException(status_code=503, detail="AUTH_SECRET must be at least 32 characters")
+    return value.encode()
+
+
+def current_user(
+    authorization: Optional[str] = Header(default=None),
+    finsight_token: Optional[str] = Cookie(default=None),
+    db: Session | None = Depends(get_db),
+) -> User | dict[str, Any]:
+    token = finsight_token
+    if not token and authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1]
+    if not token:
         raise HTTPException(status_code=401, detail="Sign in to continue")
     try:
-        payload, signature = authorization.split(" ", 1)[1].split(".", 1)
-        secret = os.getenv("AUTH_SECRET", "finsight-development-secret").encode()
+        payload, signature = token.split(".", 1)
+        secret = auth_secret()
         expected = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(signature, expected):
             raise ValueError
@@ -233,33 +260,46 @@ def health() -> dict[str, str]:
 
 
 @app.post("/api/auth/signup", response_model=AuthResponse, status_code=201)
-def signup(payload: AuthPayload, db: Session = Depends(get_db)) -> AuthResponse:
+def signup(payload: AuthPayload, response: Response, db: Session = Depends(get_db)) -> AuthResponse:
     email = payload.email.lower()
     if store.mongo:
         if store.mongo.find_user_by_email(email):
             raise HTTPException(status_code=409, detail="An account with this email already exists")
         user = store.mongo.create_user(email, payload.name or email.split("@")[0].title(), password_hash(payload.password))
-        return AuthResponse(token=make_token(user), user=UserResponse(**{key: user[key] for key in ("id", "email", "name")}))
+        token = make_token(user)
+        set_auth_cookie(response, token)
+        return AuthResponse(token=token, user=UserResponse(**{key: user[key] for key in ("id", "email", "name")}))
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=409, detail="An account with this email already exists")
     user = User(email=email, name=payload.name or email.split("@")[0].title(), password_hash=password_hash(payload.password))
     db.add(user)
     db.commit()
     db.refresh(user)
-    return AuthResponse(token=make_token(user), user=UserResponse.model_validate(user, from_attributes=True))
+    token = make_token(user)
+    set_auth_cookie(response, token)
+    return AuthResponse(token=token, user=UserResponse.model_validate(user, from_attributes=True))
 
 
 @app.post("/api/auth/login", response_model=AuthResponse)
-def login(payload: AuthPayload, db: Session = Depends(get_db)) -> AuthResponse:
+def login(payload: AuthPayload, response: Response, db: Session = Depends(get_db)) -> AuthResponse:
     if store.mongo:
         user = store.mongo.find_user_by_email(payload.email.lower())
         if not user or not password_matches(payload.password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="Invalid email or password")
-        return AuthResponse(token=make_token(user), user=UserResponse(**{key: user[key] for key in ("id", "email", "name")}))
+        token = make_token(user)
+        set_auth_cookie(response, token)
+        return AuthResponse(token=token, user=UserResponse(**{key: user[key] for key in ("id", "email", "name")}))
     user = db.query(User).filter(User.email == payload.email.lower()).first()
     if not user or not password_matches(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    return AuthResponse(token=make_token(user), user=UserResponse.model_validate(user, from_attributes=True))
+    token = make_token(user)
+    set_auth_cookie(response, token)
+    return AuthResponse(token=token, user=UserResponse.model_validate(user, from_attributes=True))
+
+
+@app.post("/api/auth/logout", status_code=204)
+def logout(response: Response) -> None:
+    response.delete_cookie("finsight_token")
 
 
 @app.get("/api/auth/me", response_model=UserResponse)
@@ -423,8 +463,13 @@ def insights(db: Session = Depends(get_db), user: User = Depends(current_user)) 
 async def import_csv(file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Please upload a CSV file")
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="CSV files must be 4 MB or smaller")
     try:
-        frame = pd.read_csv(io.BytesIO(await file.read()))
+        frame = pd.read_csv(io.BytesIO(content), nrows=MAX_UPLOAD_ROWS + 1)
+        if len(frame) > MAX_UPLOAD_ROWS:
+            raise HTTPException(status_code=413, detail="CSV files must contain 100,000 rows or fewer")
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not read CSV: {exc}") from exc
     valid, report = DataValidator.validate_csv(frame)
@@ -433,9 +478,27 @@ async def import_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
     return load_dataframe(db, frame, user)
 
 
+@app.post("/api/import/sample")
+def import_sample(db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
+    sample_path = os.path.join(APP_DIR, "data", "raw", "synthetic_data.csv")
+    try:
+        frame = pd.read_csv(sample_path)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail="Synthetic sample data is unavailable") from exc
+    valid, report = DataValidator.validate_csv(frame)
+    if not valid:
+        raise HTTPException(status_code=500, detail=report)
+    return load_dataframe(db, frame, user)
+
+
 @app.get("/api/export/csv")
 def export_csv(db: Session = Depends(get_db), user: User = Depends(current_user)) -> StreamingResponse:
     frame = dataframe_for(db, user)
+    for column in ("description", "merchant", "notes", "category", "payment_method"):
+        if column in frame.columns:
+            frame[column] = frame[column].map(
+                lambda value: "'" + str(value) if str(value).startswith(("=", "+", "-", "@")) else value
+            )
     stream = io.StringIO()
     frame.to_csv(stream, index=False)
     stream.seek(0)

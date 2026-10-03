@@ -1,6 +1,5 @@
 import pandas as pd
 import uuid
-import numpy as np
 from typing import Tuple
 from src.utils.logging_config import logger
 
@@ -14,6 +13,7 @@ class DataCleaner:
         Returns: Tuple of cleaned dataframe and a report dictionary.
         """
         report = {
+            "rows_read": len(df),
             "initial_rows": len(df),
             "duplicates_removed": 0,
             "missing_values_handled": 0,
@@ -26,14 +26,9 @@ class DataCleaner:
         # Normalize column names
         df_clean.columns = df_clean.columns.str.lower().str.strip()
         
-        # Remove duplicates
-        initial_count = len(df_clean)
-        df_clean = df_clean.drop_duplicates()
-        report["duplicates_removed"] = initial_count - len(df_clean)
-        
         # Handle date parsing
         if 'date' in df_clean.columns:
-            df_clean['date'] = pd.to_datetime(df_clean['date'], errors='coerce', format='mixed')
+            df_clean['date'] = pd.to_datetime(df_clean['date'], errors='coerce', format='mixed', dayfirst=True)
             invalid_dates = df_clean['date'].isna().sum()
             if invalid_dates > 0:
                 report["invalid_rows_removed"] += invalid_dates
@@ -64,15 +59,19 @@ class DataCleaner:
         if 'type' in df_clean.columns:
             df_clean['type'] = df_clean['type'].apply(lambda x: x if x in ['Income', 'Expense'] else 'Expense')
 
-        # Normalize invalid fields before the final duplicate check so rows
-        # that become identical after cleaning are only kept once.
-        final_count = len(df_clean)
-        df_clean = df_clean.drop_duplicates()
-        report["duplicates_removed"] += final_count - len(df_clean)
-            
         # Generate IDs if missing
         if 'transaction_id' not in df_clean.columns:
             df_clean['transaction_id'] = [str(uuid.uuid4()) for _ in range(len(df_clean))]
+        else:
+            seen_ids = set()
+            replacement_ids = []
+            for value in df_clean['transaction_id']:
+                candidate = str(value).strip()
+                if not candidate or candidate.lower() in {"nan", "none"} or candidate in seen_ids:
+                    candidate = str(uuid.uuid4())
+                seen_ids.add(candidate)
+                replacement_ids.append(candidate)
+            df_clean['transaction_id'] = replacement_ids
             
         # Ensure notes column exists
         if 'notes' not in df_clean.columns:
