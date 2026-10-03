@@ -32,3 +32,9 @@ def get_db():
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    if engine.dialect.name == "sqlite":
+        with engine.begin() as connection:
+            for table, column in (("transactions", "user_id"), ("budgets", "user_id")):
+                columns = {row[1] for row in connection.exec_driver_sql(f"PRAGMA table_info({table})")}
+                if column not in columns:
+                    connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} INTEGER")

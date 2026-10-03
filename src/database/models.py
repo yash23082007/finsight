@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Date, Text
+from sqlalchemy import Column, Integer, String, Float, Date, Text, ForeignKey
 from .connection import Base
 
 class Transaction(Base):
@@ -13,6 +13,7 @@ class Transaction(Base):
     payment_method = Column(String)
     merchant = Column(String)
     notes = Column(Text, nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
 class Budget(Base):
     __tablename__ = "budgets"
@@ -21,3 +22,13 @@ class Budget(Base):
     category = Column(String, index=True)
     amount = Column(Float)
     month_year = Column(String, index=True) # Format: YYYY-MM
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    password_hash = Column(String, nullable=False)

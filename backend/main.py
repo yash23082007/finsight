@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import io
 import os
+import base64
+import hashlib
+import hmac
+import json
+import secrets
 import uuid
 from datetime import date
 from typing import Any, Generator, Optional
 
 import pandas as pd
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from src.analytics.insights import InsightEngine
 from src.database.connection import SessionLocal, init_db
-from src.database.models import Budget, Transaction
+from src.database.models import Budget, Transaction, User
 from src.database.repository import Repository
 from src.data.cleaner import DataCleaner
 from src.data.validator import DataValidator
@@ -68,6 +73,7 @@ class TransactionUpdate(BaseModel):
 class TransactionResponse(TransactionBase):
     model_config = ConfigDict(from_attributes=True)
     id: str
+    user_id: Optional[int] = None
 
 
 class BudgetCreate(BaseModel):
@@ -81,12 +87,69 @@ class BudgetResponse(BudgetCreate):
     id: int
 
 
+class AuthPayload(BaseModel):
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    password: str = Field(min_length=8, max_length=128)
+    name: Optional[str] = Field(default=None, min_length=2, max_length=80)
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    name: str
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user: UserResponse
+
+
 def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+
+def password_hash(password: str, salt: bytes | None = None) -> str:
+    salt = salt or secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 210_000)
+    return f"{base64.urlsafe_b64encode(salt).decode()}${base64.urlsafe_b64encode(digest).decode()}"
+
+
+def password_matches(password: str, stored: str) -> bool:
+    try:
+        salt_text, digest_text = stored.split("$", 1)
+        expected = password_hash(password, base64.urlsafe_b64decode(salt_text))
+        return hmac.compare_digest(expected, stored)
+    except (ValueError, TypeError):
+        return False
+
+
+def make_token(user: User) -> str:
+    payload = base64.urlsafe_b64encode(json.dumps({"id": user.id, "exp": 30 * 24 * 3600}).encode()).decode().rstrip("=")
+    secret = os.getenv("AUTH_SECRET", "finsight-development-secret").encode()
+    signature = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}.{signature}"
+
+
+def current_user(authorization: Optional[str] = Header(default=None), db: Session = Depends(get_db)) -> User:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Sign in to continue")
+    try:
+        payload, signature = authorization.split(" ", 1)[1].split(".", 1)
+        secret = os.getenv("AUTH_SECRET", "finsight-development-secret").encode()
+        expected = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise ValueError
+        user_id = json.loads(base64.urlsafe_b64decode(payload + "==="))["id"]
+        user = db.get(User, int(user_id))
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+        user = None
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    return user
 
 
 def transaction_dict(transaction: Transaction) -> dict[str, Any]:
@@ -153,8 +216,33 @@ def health() -> dict[str, str]:
     return {"status": "ok", "service": "finsight-api"}
 
 
+@app.post("/api/auth/signup", response_model=AuthResponse, status_code=201)
+def signup(payload: AuthPayload, db: Session = Depends(get_db)) -> AuthResponse:
+    email = payload.email.lower()
+    if db.query(User).filter(User.email == email).first():
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+    user = User(email=email, name=payload.name or email.split("@")[0].title(), password_hash=password_hash(payload.password))
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return AuthResponse(token=make_token(user), user=UserResponse.model_validate(user, from_attributes=True))
+
+
+@app.post("/api/auth/login", response_model=AuthResponse)
+def login(payload: AuthPayload, db: Session = Depends(get_db)) -> AuthResponse:
+    user = db.query(User).filter(User.email == payload.email.lower()).first()
+    if not user or not password_matches(payload.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    return AuthResponse(token=make_token(user), user=UserResponse.model_validate(user, from_attributes=True))
+
+
+@app.get("/api/auth/me", response_model=UserResponse)
+def me(user: User = Depends(current_user)) -> UserResponse:
+    return UserResponse.model_validate(user, from_attributes=True)
+
+
 @app.get("/api/dashboard")
-def dashboard(db: Session = Depends(get_db)) -> dict[str, Any]:
+def dashboard(db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
     frame = dataframe_for(db)
     if frame.empty:
         return {"income": 0, "expenses": 0, "savings": 0, "savings_rate": 0, "monthly": [], "categories": [], "recent_transactions": []}
@@ -171,8 +259,8 @@ def dashboard(db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @app.get("/api/transactions", response_model=list[TransactionResponse])
-def transactions(db: Session = Depends(get_db), search: Optional[str] = Query(default=None), transaction_type: Optional[str] = Query(default=None, alias="type"), category: Optional[str] = None) -> list[Transaction]:
-    query = db.query(Transaction).order_by(Transaction.date.desc())
+def transactions(db: Session = Depends(get_db), user: User = Depends(current_user), search: Optional[str] = Query(default=None), transaction_type: Optional[str] = Query(default=None, alias="type"), category: Optional[str] = None) -> list[Transaction]:
+    query = db.query(Transaction).filter((Transaction.user_id == user.id) | Transaction.user_id.is_(None)).order_by(Transaction.date.desc())
     if transaction_type:
         query = query.filter(Transaction.type == transaction_type)
     if category:
@@ -184,14 +272,14 @@ def transactions(db: Session = Depends(get_db), search: Optional[str] = Query(de
 
 
 @app.post("/api/transactions", response_model=TransactionResponse, status_code=201)
-def create_transaction(payload: TransactionCreate, db: Session = Depends(get_db)) -> Transaction:
-    transaction = Transaction(id=str(uuid.uuid4()), **payload.model_dump())
+def create_transaction(payload: TransactionCreate, db: Session = Depends(get_db), user: User = Depends(current_user)) -> Transaction:
+    transaction = Transaction(id=str(uuid.uuid4()), user_id=user.id, **payload.model_dump())
     return Repository(db).add_transaction(transaction)
 
 
 @app.put("/api/transactions/{transaction_id}", response_model=TransactionResponse)
-def update_transaction(transaction_id: str, payload: TransactionUpdate, db: Session = Depends(get_db)) -> Transaction:
-    transaction = db.get(Transaction, transaction_id)
+def update_transaction(transaction_id: str, payload: TransactionUpdate, db: Session = Depends(get_db), user: User = Depends(current_user)) -> Transaction:
+    transaction = db.query(Transaction).filter(Transaction.id == transaction_id, Transaction.user_id == user.id).first()
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
     for field, value in payload.model_dump(exclude_unset=True).items():
@@ -202,8 +290,8 @@ def update_transaction(transaction_id: str, payload: TransactionUpdate, db: Sess
 
 
 @app.delete("/api/transactions/{transaction_id}", status_code=204)
-def delete_transaction(transaction_id: str, db: Session = Depends(get_db)) -> None:
-    transaction = db.get(Transaction, transaction_id)
+def delete_transaction(transaction_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> None:
+    transaction = db.query(Transaction).filter(Transaction.id == transaction_id, Transaction.user_id == user.id).first()
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
     db.delete(transaction)
@@ -211,50 +299,50 @@ def delete_transaction(transaction_id: str, db: Session = Depends(get_db)) -> No
 
 
 @app.get("/api/analytics/expenses")
-def expense_analytics(db: Session = Depends(get_db)) -> dict[str, Any]:
+def expense_analytics(db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
     frame = dataframe_for(db)
     expenses = frame[frame["type"] == "Expense"] if not frame.empty else frame
     return {"total": float(expenses["amount"].sum()) if not expenses.empty else 0, "by_category": [{"category": category, "amount": float(amount)} for category, amount in expenses.groupby("category")["amount"].sum().sort_values(ascending=False).items()]}
 
 
 @app.get("/api/analytics/income")
-def income_analytics(db: Session = Depends(get_db)) -> dict[str, Any]:
+def income_analytics(db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
     frame = dataframe_for(db)
     income = frame[frame["type"] == "Income"] if not frame.empty else frame
     return {"total": float(income["amount"].sum()) if not income.empty else 0, "by_category": [{"category": category, "amount": float(amount)} for category, amount in income.groupby("category")["amount"].sum().items()]}
 
 
 @app.get("/api/analytics/savings")
-def savings_analytics(db: Session = Depends(get_db)) -> dict[str, Any]:
-    summary = dashboard(db)
+def savings_analytics(db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
+    summary = dashboard(db, user)
     return {"savings": summary["savings"], "savings_rate": summary["savings_rate"], "monthly": summary["monthly"]}
 
 
 @app.get("/api/analytics/monthly")
-def monthly_analytics(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
-    return dashboard(db)["monthly"]
+def monthly_analytics(db: Session = Depends(get_db), user: User = Depends(current_user)) -> list[dict[str, Any]]:
+    return dashboard(db, user)["monthly"]
 
 
 @app.get("/api/analytics/statistics")
-def statistics(db: Session = Depends(get_db)) -> dict[str, Any]:
+def statistics(db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
     frame = dataframe_for(db)
     expenses = frame.loc[frame["type"] == "Expense", "amount"] if not frame.empty else pd.Series(dtype=float)
     return {"average_expense": float(expenses.mean()) if not expenses.empty else 0, "median_expense": float(expenses.median()) if not expenses.empty else 0, "largest_expense": float(expenses.max()) if not expenses.empty else 0, "transaction_count": int(len(frame))}
 
 
 @app.get("/api/budgets", response_model=list[BudgetResponse])
-def budgets(db: Session = Depends(get_db), month_year: Optional[str] = None) -> list[Budget]:
-    query = db.query(Budget).order_by(Budget.month_year.desc(), Budget.category.asc())
+def budgets(db: Session = Depends(get_db), user: User = Depends(current_user), month_year: Optional[str] = None) -> list[Budget]:
+    query = db.query(Budget).filter((Budget.user_id == user.id) | Budget.user_id.is_(None)).order_by(Budget.month_year.desc(), Budget.category.asc())
     return query.filter(Budget.month_year == month_year).all() if month_year else query.all()
 
 
 @app.post("/api/budgets", response_model=BudgetResponse, status_code=201)
-def create_or_update_budget(payload: BudgetCreate, db: Session = Depends(get_db)) -> Budget:
-    budget = db.query(Budget).filter_by(category=payload.category, month_year=payload.month_year).first()
+def create_or_update_budget(payload: BudgetCreate, db: Session = Depends(get_db), user: User = Depends(current_user)) -> Budget:
+    budget = db.query(Budget).filter_by(category=payload.category, month_year=payload.month_year, user_id=user.id).first()
     if budget:
         budget.amount = payload.amount
     else:
-        budget = Budget(**payload.model_dump())
+        budget = Budget(user_id=user.id, **payload.model_dump())
         db.add(budget)
     db.commit()
     db.refresh(budget)
@@ -262,8 +350,8 @@ def create_or_update_budget(payload: BudgetCreate, db: Session = Depends(get_db)
 
 
 @app.put("/api/budgets/{budget_id}", response_model=BudgetResponse)
-def update_budget(budget_id: int, payload: BudgetCreate, db: Session = Depends(get_db)) -> Budget:
-    budget = db.get(Budget, budget_id)
+def update_budget(budget_id: int, payload: BudgetCreate, db: Session = Depends(get_db), user: User = Depends(current_user)) -> Budget:
+    budget = db.query(Budget).filter(Budget.id == budget_id, Budget.user_id == user.id).first()
     if not budget:
         raise HTTPException(status_code=404, detail="Budget not found")
     for field, value in payload.model_dump().items():
@@ -274,12 +362,12 @@ def update_budget(budget_id: int, payload: BudgetCreate, db: Session = Depends(g
 
 
 @app.get("/api/insights")
-def insights(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+def insights(db: Session = Depends(get_db), user: User = Depends(current_user)) -> list[dict[str, Any]]:
     return InsightEngine.generate_insights(dataframe_for(db))
 
 
 @app.post("/api/import/csv")
-async def import_csv(file: UploadFile = File(...), db: Session = Depends(get_db)) -> dict[str, Any]:
+async def import_csv(file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Please upload a CSV file")
     try:
@@ -293,7 +381,7 @@ async def import_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
 
 
 @app.get("/api/export/csv")
-def export_csv(db: Session = Depends(get_db)) -> StreamingResponse:
+def export_csv(db: Session = Depends(get_db), user: User = Depends(current_user)) -> StreamingResponse:
     frame = dataframe_for(db)
     stream = io.StringIO()
     frame.to_csv(stream, index=False)
