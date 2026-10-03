@@ -112,6 +112,8 @@ Vercel static hosting without requiring server-side SPA rewrites. Set
 For production persistence, use a hosted SQLAlchemy-compatible database and set
 `DATABASE_URL` to its connection string. New accounts start with no
 transactions; users can add records individually or import their own CSV.
+For Neon, use the pooled connection string and add `AUTH_SECRET` as a separate
+Vercel environment variable containing a long random value.
 
 ## CSV data
 
