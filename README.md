@@ -104,8 +104,10 @@ To deploy:
    `DATABASE_URL` is not set on Vercel, the API uses `/tmp/finsight.db`, which is
    writable but ephemeral.
 
-The frontend uses same-origin `/api` requests by default. Set `VITE_API_URL`
-only when deploying the API separately.
+The frontend uses same-origin `/api` requests by default. Client-side navigation
+uses hash routes (`/#/transactions`, `/#/budget`, etc.) so every route works on
+Vercel static hosting without requiring server-side SPA rewrites. Set
+`VITE_API_URL` only when deploying the API separately.
 
 For production persistence, use a hosted SQLAlchemy-compatible database and set
 `DATABASE_URL` to its connection string. The demo data is loaded from

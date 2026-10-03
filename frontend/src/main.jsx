@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
+import { HashRouter, useLocation, useNavigate } from 'react-router-dom';
 import api from './api';
 import {
   ArrowDownRight,
@@ -240,4 +240,4 @@ function TransactionForm({ onClose, onSubmit }) {
   return <div className="modal-backdrop"><form className="modal-card" onSubmit={(event) => { event.preventDefault(); onSubmit({ ...form, amount: Number(form.amount) }); }}><div className="modal-header"><div><p className="kicker">Workspace</p><h2>Add transaction</h2></div><button type="button" className="icon-button" onClick={onClose}><X size={19} /></button></div><div className="form-grid"><input required type="date" value={form.date} onChange={(event) => update('date', event.target.value)} /><select value={form.type} onChange={(event) => update('type', event.target.value)}><option>Expense</option><option>Income</option></select><input required placeholder="Description" value={form.description} onChange={(event) => update('description', event.target.value)} /><input required min="0" step="0.01" type="number" placeholder="Amount" value={form.amount} onChange={(event) => update('amount', event.target.value)} /><input placeholder="Category" value={form.category} onChange={(event) => update('category', event.target.value)} /><input placeholder="Merchant" value={form.merchant} onChange={(event) => update('merchant', event.target.value)} /></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button">Save transaction</button></div></form></div>;
 }
 
-createRoot(document.getElementById('root')).render(<BrowserRouter><Root /></BrowserRouter>);
+createRoot(document.getElementById('root')).render(<HashRouter><Root /></HashRouter>);
