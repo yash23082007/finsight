@@ -110,8 +110,8 @@ Vercel static hosting without requiring server-side SPA rewrites. Set
 `VITE_API_URL` only when deploying the API separately.
 
 For production persistence, use a hosted SQLAlchemy-compatible database and set
-`DATABASE_URL` to its connection string. The demo data is loaded from
-`data/raw/synthetic_data.csv` when the database has no transactions.
+`DATABASE_URL` to its connection string. New accounts start with no
+transactions; users can add records individually or import their own CSV.
 
 ## CSV data
 

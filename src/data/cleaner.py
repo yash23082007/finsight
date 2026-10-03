@@ -33,7 +33,7 @@ class DataCleaner:
         
         # Handle date parsing
         if 'date' in df_clean.columns:
-            df_clean['date'] = pd.to_datetime(df_clean['date'], errors='coerce')
+            df_clean['date'] = pd.to_datetime(df_clean['date'], errors='coerce', format='mixed')
             invalid_dates = df_clean['date'].isna().sum()
             if invalid_dates > 0:
                 report["invalid_rows_removed"] += invalid_dates
@@ -42,8 +42,7 @@ class DataCleaner:
         # Handle amount parsing
         if 'amount' in df_clean.columns:
             # Remove any currency symbols and commas
-            if df_clean['amount'].dtype == object:
-                df_clean['amount'] = df_clean['amount'].astype(str).str.replace(r'[₹$,]', '', regex=True)
+            df_clean['amount'] = df_clean['amount'].astype("string").str.replace(r"[₹$,]", "", regex=True)
             df_clean['amount'] = pd.to_numeric(df_clean['amount'], errors='coerce')
             
             invalid_amounts = df_clean['amount'].isna().sum()
@@ -64,6 +63,12 @@ class DataCleaner:
         # Ensure type is strictly Income or Expense
         if 'type' in df_clean.columns:
             df_clean['type'] = df_clean['type'].apply(lambda x: x if x in ['Income', 'Expense'] else 'Expense')
+
+        # Normalize invalid fields before the final duplicate check so rows
+        # that become identical after cleaning are only kept once.
+        final_count = len(df_clean)
+        df_clean = df_clean.drop_duplicates()
+        report["duplicates_removed"] += final_count - len(df_clean)
             
         # Generate IDs if missing
         if 'transaction_id' not in df_clean.columns:

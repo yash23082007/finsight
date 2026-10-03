@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import secrets
+import time
 import uuid
 from datetime import date
 from typing import Any, Generator, Optional
@@ -26,7 +27,6 @@ from src.data.cleaner import DataCleaner
 from src.data.validator import DataValidator
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEMO_DATA_PATH = os.path.join(APP_DIR, "data", "raw", "synthetic_data.csv")
 
 app = FastAPI(title="FinSight API", version="1.0.0", description="REST API for personal financial analysis")
 app.add_middleware(
@@ -128,7 +128,7 @@ def password_matches(password: str, stored: str) -> bool:
 
 
 def make_token(user: User) -> str:
-    payload = base64.urlsafe_b64encode(json.dumps({"id": user.id, "exp": 30 * 24 * 3600}).encode()).decode().rstrip("=")
+    payload = base64.urlsafe_b64encode(json.dumps({"id": user.id, "exp": int(time.time()) + 30 * 24 * 3600}).encode()).decode().rstrip("=")
     secret = os.getenv("AUTH_SECRET", "finsight-development-secret").encode()
     signature = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
     return f"{payload}.{signature}"
@@ -143,7 +143,10 @@ def current_user(authorization: Optional[str] = Header(default=None), db: Sessio
         expected = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(signature, expected):
             raise ValueError
-        user_id = json.loads(base64.urlsafe_b64decode(payload + "==="))["id"]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "==="))
+        if int(claims["exp"]) <= int(time.time()):
+            raise ValueError
+        user_id = claims["id"]
         user = db.get(User, int(user_id))
     except (ValueError, TypeError, KeyError, json.JSONDecodeError):
         user = None
@@ -198,13 +201,13 @@ def load_dataframe(db: Session, frame: pd.DataFrame, user: User) -> dict[str, An
     return {"imported": len(transactions), "report": report}
 
 
-def ensure_demo_data() -> None:
+def initialize_database() -> None:
     init_db()
 
 
 @app.on_event("startup")
 def startup() -> None:
-    ensure_demo_data()
+    initialize_database()
 
 
 @app.get("/api/health")
@@ -328,7 +331,7 @@ def statistics(db: Session = Depends(get_db), user: User = Depends(current_user)
 
 @app.get("/api/budgets", response_model=list[BudgetResponse])
 def budgets(db: Session = Depends(get_db), user: User = Depends(current_user), month_year: Optional[str] = None) -> list[Budget]:
-    query = db.query(Budget).filter((Budget.user_id == user.id) | Budget.user_id.is_(None)).order_by(Budget.month_year.desc(), Budget.category.asc())
+    query = db.query(Budget).filter(Budget.user_id == user.id).order_by(Budget.month_year.desc(), Budget.category.asc())
     return query.filter(Budget.month_year == month_year).all() if month_year else query.all()
 
 

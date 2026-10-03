@@ -38,3 +38,5 @@ def init_db():
                 columns = {row[1] for row in connection.exec_driver_sql(f"PRAGMA table_info({table})")}
                 if column not in columns:
                     connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} INTEGER")
+            connection.exec_driver_sql("DELETE FROM transactions WHERE user_id IS NULL")
+            connection.exec_driver_sql("DELETE FROM budgets WHERE user_id IS NULL")
