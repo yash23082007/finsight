@@ -1,69 +1,159 @@
-# Finsight: Intelligent Personal Financial Analyzer
+# FinSight
 
-Finsight is a professional, Python-based financial data analysis application designed for educational and analytical purposes. It transforms raw financial transactions into actionable insights through Data Science, Machine Learning, and an interactive dashboard.
+FinSight is an intelligent personal finance analyzer that turns transaction data into
+interactive dashboards, machine-learning insights, and practical spending analysis.
+It is intended for educational and analytical use.
 
-## Features
+## Highlights
 
-*   **Interactive Dashboard**: Visualize income, expenses, and savings dynamically.
-*   **Data Validation & Cleaning**: Built-in pipeline to process messy transaction CSVs.
-*   **Machine Learning Models**:
-    *   *Expense Categorization* using TF-IDF and Logistic Regression.
-    *   *Anomaly Detection* using Isolation Forest.
-    *   *Expense Forecasting* using Linear Regression on time-series data.
-*   **Budgeting**: Set and track categorical budgets.
-*   **Financial Health Score**: Multi-metric educational scoring system.
-*   **Insights Engine**: Deterministic text insights generated from real data.
+- Interactive Streamlit dashboard for income, expenses, savings, budgets, and financial health.
+- Transaction validation, cleaning, CSV import, and demo data loading.
+- Expense categorization with TF-IDF and logistic regression.
+- Anomaly detection with Isolation Forest.
+- Expense forecasting with linear regression.
+- Deterministic, data-driven financial insights.
+- SQLite persistence through SQLAlchemy.
+- Optional React and FastAPI architecture for a modern API-first experience.
 
-## Technology Stack
+## Technology
 
-*   Python 3.12+
-*   Pandas & NumPy for Data Processing
-*   Scikit-Learn for Machine Learning
-*   Streamlit for UI/Dashboard
-*   Plotly for Data Visualization
-*   SQLite + SQLAlchemy for Storage
+### Backend and analytics
 
-## Installation
+- Python 3.12+
+- Pandas, NumPy, SciPy, and scikit-learn
+- Streamlit and Plotly
+- FastAPI, Uvicorn, Pydantic, and SQLAlchemy
+- SQLite
 
-```bash
-# 1. Create and activate a virtual environment
+### Frontend
+
+- React 18
+- Vite
+- React Router
+- Axios
+- Recharts and Lucide React
+
+## Project structure
+
+```text
+finsight/
+├── app.py                 # Streamlit entry point
+├── backend/main.py        # FastAPI application
+├── pages/                 # Streamlit pages
+├── src/
+│   ├── analytics/         # Health score and insight generation
+│   ├── data/              # Validation and cleaning
+│   ├── database/          # SQLAlchemy models, connection, and repository
+│   └── ml/                # Categorization, anomaly detection, and forecasting
+├── frontend/              # React/Vite client
+├── data/raw/              # Demo input data
+├── scripts/               # Utility scripts
+├── tests/                 # Pytest tests
+├── requirements.txt
+└── Dockerfile
+```
+
+## Quick start: Streamlit
+
+From the project root:
+
+```powershell
+# Create and activate a virtual environment
 python -m venv venv
-venv\Scripts\activate  # On Windows
+.\venv\Scripts\Activate.ps1
 
-# 2. Install requirements
+# Install Python dependencies
 pip install -r requirements.txt
 
-# 3. Generate demo dataset
+# Optional: generate a fresh demo dataset
 python scripts/generate_dataset.py
 
-# 4. Run the application
+# Start the dashboard
 streamlit run app.py
 ```
 
-## Disclaimer
-This project is designed for educational and analytical purposes and does not constitute professional financial advice. Forecasts depend on historical data. Anomaly detection does not prove fraud.
+Open the URL printed by Streamlit, usually `http://localhost:8501`.
 
-## React + FastAPI stack
+On Windows, if PowerShell script execution is restricted, activate the environment
+with `.\venv\Scripts\activate.bat` from Command Prompt instead.
 
-The project also includes the API-first application architecture:
+## Run the FastAPI and React application
 
-* `backend/main.py` - FastAPI REST API backed by SQLite, SQLAlchemy, Pandas, and the existing cleaning and insight modules.
-* `frontend/` - Vite React client with React Router, Axios, Tailwind CSS, Recharts, and Lucide icons.
+The API initializes the SQLite database and seeds it from
+`data/raw/synthetic_data.csv` when the database is empty.
 
-Run the API from the project root:
+### Start the API
 
-```bash
-venv\Scripts\python.exe -m uvicorn backend.main:app --reload --port 8000
+```powershell
+.\venv\Scripts\python.exe -m uvicorn backend.main:app --reload --port 8000
 ```
 
-Run the React client in a second terminal:
+The API is available at `http://localhost:8000`. Interactive OpenAPI
+documentation is available at `http://localhost:8000/docs`.
 
-```bash
+### Start the frontend
+
+In a second terminal:
+
+```powershell
 cd frontend
 npm install
 npm run dev
 ```
 
-The React client is available at `http://localhost:5173` and the API documentation at `http://localhost:8000/docs`. The API seeds the SQLite database from `data/raw/synthetic_data.csv` when it starts with an empty database.
+The React client is available at `http://localhost:5173`.
 
-The REST surface includes `/api/dashboard`, transaction CRUD, analytics, budgets, insights, CSV import, and CSV export. The existing Streamlit application remains available with `streamlit run app.py`.
+The API provides dashboard data, transaction CRUD, analytics, budgets, insights,
+CSV import, and CSV export. The Streamlit application remains available
+independently.
+
+## Docker
+
+To run the Streamlit application in Docker:
+
+```powershell
+docker compose up --build
+```
+
+Then open `http://localhost:8501`. The Compose configuration mounts `data/` so
+the SQLite database and imported data can persist between container runs.
+
+## Configuration
+
+Copy `.env.example` to `.env` when environment-specific settings are needed:
+
+```text
+DATABASE_URL=sqlite:///data/processed/finsight.db
+LOG_LEVEL=INFO
+```
+
+The default database is SQLite at `data/processed/finsight.db`. That generated
+database is ignored by Git; the demo CSV in `data/raw/` is the source data used
+for initialization.
+
+## CSV data
+
+Uploaded transaction files must include these required columns:
+
+```text
+date, description, amount, type
+```
+
+Supported optional columns include `transaction_id`, `category`, `payment_method`,
+`merchant`, and `notes`. The cleaner normalizes dates and currency-formatted
+amounts, removes invalid rows and duplicates, and supplies defaults for optional
+fields.
+
+## Tests
+
+Run the Python test suite from the project root:
+
+```powershell
+.\venv\Scripts\python.exe -m pytest
+```
+
+## Disclaimer
+
+FinSight is an educational and analytical tool, not a source of professional
+financial advice. Forecasts depend on historical data, and anomaly detection
+identifies unusual patterns but does not prove fraud.
