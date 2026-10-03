@@ -5,10 +5,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-if os.getenv("DATABASE_URL"):
-    DATABASE_URL = os.environ["DATABASE_URL"]
-elif os.getenv("VERCEL"):
+configured_database_url = os.getenv("DATABASE_URL")
+if os.getenv("VERCEL") and (
+    not configured_database_url or configured_database_url.startswith("sqlite:///data/")
+):
     DATABASE_URL = "sqlite:////tmp/finsight.db"
+elif configured_database_url:
+    DATABASE_URL = configured_database_url
 else:
     DATABASE_URL = "sqlite:///data/processed/finsight.db"
 

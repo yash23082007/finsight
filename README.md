@@ -29,7 +29,8 @@ The application is designed for educational and analytical use.
 
 ```text
 finsight/
-├── api/index.py            # Vercel serverless entry point
+├── main.py                 # Vercel FastAPI service entry point
+├── api/index.py            # Compatibility serverless entry point
 ├── backend/main.py        # FastAPI application
 ├── frontend/              # React/Vite client
 ├── src/

@@ -48,11 +48,14 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [dateRange, setDateRange] = useState('Last 6 months');
   const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState('');
   const location = useLocation();
   const navigate = useNavigate();
   const activeView = viewFromPath(location.pathname);
 
   useEffect(() => {
+    setLoading(true);
+    setApiError('');
     api.get('/transactions')
       .then((transactionResponse) => transactionResponse.data.map((row) => ({
         ...row,
@@ -60,7 +63,10 @@ function App() {
         date: new Date(row.date),
       })))
       .then(setTransactions)
-      .catch(() => setTransactions([]))
+      .catch(() => {
+        setTransactions([]);
+        setApiError('The financial API is unavailable. Check the deployment and try again.');
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -132,7 +138,7 @@ function App() {
           <div className="page-heading"><div><p className="kicker">{new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(new Date())}</p><h1>Good morning, Yash<span className="accent">.</span></h1><p className="subheading">Here&apos;s what&apos;s happening with your money.</p></div><button className="primary-button"><Plus size={17} /> Add transaction</button></div>
           <div className="toolbar"><div className="search-box"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search transactions" /></div><select value={dateRange} onChange={(event) => setDateRange(event.target.value)} aria-label="Date range"><option>Last 6 months</option><option>Last 12 months</option></select><button className="icon-button"><MoreHorizontal size={19} /></button></div>
 
-          {loading ? <div className="loading-state">Loading your financial picture...</div> : activeView === 'Overview' ? <>
+          {loading ? <div className="loading-state">Loading your financial picture...</div> : apiError ? <div className="loading-state"><p>{apiError}</p><button className="secondary-button" onClick={() => window.location.reload()}>Retry</button></div> : activeView === 'Overview' ? <>
             <section className="metric-grid" aria-label="Financial summary">
               <MetricCard label="Total balance" value={metrics.savings} delta="12.8%" detail="vs. previous period" icon={Wallet} tone="dark" />
               <MetricCard label="Income" value={metrics.income} delta="8.4%" detail="vs. previous period" icon={ArrowDownRight} tone="green" />
