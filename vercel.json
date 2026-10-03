@@ -24,5 +24,42 @@
         "service": "frontend"
       }
     }
+  ],
+  "redirects": [
+    {
+      "source": "/transactions",
+      "destination": "/#/transactions",
+      "permanent": false
+    },
+    {
+      "source": "/expense-analysis",
+      "destination": "/#/expense-analysis",
+      "permanent": false
+    },
+    {
+      "source": "/budget",
+      "destination": "/#/budget",
+      "permanent": false
+    },
+    {
+      "source": "/monthly-summary",
+      "destination": "/#/monthly-summary",
+      "permanent": false
+    },
+    {
+      "source": "/insights",
+      "destination": "/#/insights",
+      "permanent": false
+    },
+    {
+      "source": "/import-data",
+      "destination": "/#/import-data",
+      "permanent": false
+    },
+    {
+      "source": "/settings",
+      "destination": "/#/settings",
+      "permanent": false
+    }
   ]
 }
