@@ -23,6 +23,7 @@ from src.analytics.insights import InsightEngine
 from src.database.connection import SessionLocal, init_db
 from src.database.models import Budget, Transaction, User
 from src.database.repository import Repository
+from src.database.store import Store
 from src.data.cleaner import DataCleaner
 from src.data.validator import DataValidator
 
@@ -41,6 +42,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+store = Store()
 
 
 class TransactionBase(BaseModel):
@@ -104,7 +106,10 @@ class AuthResponse(BaseModel):
     user: UserResponse
 
 
-def get_db() -> Generator[Session, None, None]:
+def get_db() -> Generator[Session | None, None, None]:
+    if store.using_mongo():
+        yield None
+        return
     db = SessionLocal()
     try:
         yield db
@@ -127,14 +132,15 @@ def password_matches(password: str, stored: str) -> bool:
         return False
 
 
-def make_token(user: User) -> str:
-    payload = base64.urlsafe_b64encode(json.dumps({"id": user.id, "exp": int(time.time()) + 30 * 24 * 3600}).encode()).decode().rstrip("=")
+def make_token(user: User | dict[str, Any]) -> str:
+    user_id = user["id"] if isinstance(user, dict) else user.id
+    payload = base64.urlsafe_b64encode(json.dumps({"id": user_id, "exp": int(time.time()) + 30 * 24 * 3600}).encode()).decode().rstrip("=")
     secret = os.getenv("AUTH_SECRET", "finsight-development-secret").encode()
     signature = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
     return f"{payload}.{signature}"
 
 
-def current_user(authorization: Optional[str] = Header(default=None), db: Session = Depends(get_db)) -> User:
+def current_user(authorization: Optional[str] = Header(default=None), db: Session | None = Depends(get_db)) -> User | dict[str, Any]:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Sign in to continue")
     try:
@@ -147,7 +153,7 @@ def current_user(authorization: Optional[str] = Header(default=None), db: Sessio
         if int(claims["exp"]) <= int(time.time()):
             raise ValueError
         user_id = claims["id"]
-        user = db.get(User, int(user_id))
+        user = store.mongo.find_user_by_id(int(user_id)) if store.mongo else db.get(User, int(user_id))
     except (ValueError, TypeError, KeyError, json.JSONDecodeError):
         user = None
     if not user:
@@ -169,12 +175,14 @@ def transaction_dict(transaction: Transaction) -> dict[str, Any]:
     }
 
 
-def dataframe_for(db: Session, user: User) -> pd.DataFrame:
+def dataframe_for(db: Session | None, user: User | dict[str, Any]) -> pd.DataFrame:
+    if store.mongo:
+        return store.mongo.dataframe(user["id"])
     query = db.query(Transaction).filter(Transaction.user_id == user.id)
     return pd.read_sql(query.statement, db.bind)
 
 
-def load_dataframe(db: Session, frame: pd.DataFrame, user: User) -> dict[str, Any]:
+def load_dataframe(db: Session | None, frame: pd.DataFrame, user: User | dict[str, Any]) -> dict[str, Any]:
     cleaned, report = DataCleaner.clean_data(frame)
     used_ids: set[str] = set()
     transactions = []
@@ -183,7 +191,7 @@ def load_dataframe(db: Session, frame: pd.DataFrame, user: User) -> dict[str, An
         if not transaction_id or transaction_id in used_ids or transaction_id.lower() in {"nan", "none"}:
             transaction_id = str(uuid.uuid4())
         used_ids.add(transaction_id)
-        transactions.append(Transaction(
+        document = dict(
             id=transaction_id,
             date=pd.to_datetime(row["date"]).date(),
             description=str(row.get("description", "Unknown")),
@@ -193,8 +201,12 @@ def load_dataframe(db: Session, frame: pd.DataFrame, user: User) -> dict[str, An
             payment_method=str(row.get("payment_method", "Other")),
             merchant=str(row.get("merchant", "")),
             notes=str(row.get("notes", "")),
-            user_id=user.id,
-        ))
+            user_id=user["id"] if isinstance(user, dict) else user.id,
+        )
+        transactions.append(document if store.mongo else Transaction(**document))
+    if store.mongo:
+        store.mongo.replace_transactions(user["id"], transactions)
+        return {"imported": len(transactions), "report": report}
     repo = Repository(db)
     db.query(Transaction).filter(Transaction.user_id == user.id).delete()
     repo.bulk_add_transactions(transactions)
@@ -202,7 +214,8 @@ def load_dataframe(db: Session, frame: pd.DataFrame, user: User) -> dict[str, An
 
 
 def initialize_database() -> None:
-    init_db()
+    if not store.using_mongo():
+        init_db()
 
 
 @app.on_event("startup")
@@ -212,12 +225,21 @@ def startup() -> None:
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
+    try:
+        store.ping()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}") from exc
     return {"status": "ok", "service": "finsight-api"}
 
 
 @app.post("/api/auth/signup", response_model=AuthResponse, status_code=201)
 def signup(payload: AuthPayload, db: Session = Depends(get_db)) -> AuthResponse:
     email = payload.email.lower()
+    if store.mongo:
+        if store.mongo.find_user_by_email(email):
+            raise HTTPException(status_code=409, detail="An account with this email already exists")
+        user = store.mongo.create_user(email, payload.name or email.split("@")[0].title(), password_hash(payload.password))
+        return AuthResponse(token=make_token(user), user=UserResponse(**{key: user[key] for key in ("id", "email", "name")}))
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=409, detail="An account with this email already exists")
     user = User(email=email, name=payload.name or email.split("@")[0].title(), password_hash=password_hash(payload.password))
@@ -229,6 +251,11 @@ def signup(payload: AuthPayload, db: Session = Depends(get_db)) -> AuthResponse:
 
 @app.post("/api/auth/login", response_model=AuthResponse)
 def login(payload: AuthPayload, db: Session = Depends(get_db)) -> AuthResponse:
+    if store.mongo:
+        user = store.mongo.find_user_by_email(payload.email.lower())
+        if not user or not password_matches(payload.password, user["password_hash"]):
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        return AuthResponse(token=make_token(user), user=UserResponse(**{key: user[key] for key in ("id", "email", "name")}))
     user = db.query(User).filter(User.email == payload.email.lower()).first()
     if not user or not password_matches(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -237,6 +264,8 @@ def login(payload: AuthPayload, db: Session = Depends(get_db)) -> AuthResponse:
 
 @app.get("/api/auth/me", response_model=UserResponse)
 def me(user: User = Depends(current_user)) -> UserResponse:
+    if isinstance(user, dict):
+        return UserResponse(**{key: user[key] for key in ("id", "email", "name")})
     return UserResponse.model_validate(user, from_attributes=True)
 
 
@@ -259,6 +288,8 @@ def dashboard(db: Session = Depends(get_db), user: User = Depends(current_user))
 
 @app.get("/api/transactions", response_model=list[TransactionResponse])
 def transactions(db: Session = Depends(get_db), user: User = Depends(current_user), search: Optional[str] = Query(default=None), transaction_type: Optional[str] = Query(default=None, alias="type"), category: Optional[str] = None) -> list[Transaction]:
+    if store.mongo:
+        return store.mongo.list_transactions(user["id"], search, transaction_type, category)
     query = db.query(Transaction).filter(Transaction.user_id == user.id).order_by(Transaction.date.desc())
     if transaction_type:
         query = query.filter(Transaction.type == transaction_type)
@@ -272,12 +303,22 @@ def transactions(db: Session = Depends(get_db), user: User = Depends(current_use
 
 @app.post("/api/transactions", response_model=TransactionResponse, status_code=201)
 def create_transaction(payload: TransactionCreate, db: Session = Depends(get_db), user: User = Depends(current_user)) -> Transaction:
+    if store.mongo:
+        return store.mongo.save_transaction({"id": str(uuid.uuid4()), "user_id": user["id"], **payload.model_dump(), "date": payload.date.isoformat()})
     transaction = Transaction(id=str(uuid.uuid4()), user_id=user.id, **payload.model_dump())
     return Repository(db).add_transaction(transaction)
 
 
 @app.put("/api/transactions/{transaction_id}", response_model=TransactionResponse)
 def update_transaction(transaction_id: str, payload: TransactionUpdate, db: Session = Depends(get_db), user: User = Depends(current_user)) -> Transaction:
+    if store.mongo:
+        transaction = store.mongo.get_transaction(transaction_id, user["id"])
+        if not transaction:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        transaction.update(payload.model_dump(exclude_unset=True))
+        if isinstance(transaction.get("date"), date):
+            transaction["date"] = transaction["date"].isoformat()
+        return store.mongo.save_transaction(transaction)
     transaction = db.query(Transaction).filter(Transaction.id == transaction_id, Transaction.user_id == user.id).first()
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
@@ -290,6 +331,10 @@ def update_transaction(transaction_id: str, payload: TransactionUpdate, db: Sess
 
 @app.delete("/api/transactions/{transaction_id}", status_code=204)
 def delete_transaction(transaction_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)) -> None:
+    if store.mongo:
+        if not store.mongo.delete_transaction(transaction_id, user["id"]):
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        return
     transaction = db.query(Transaction).filter(Transaction.id == transaction_id, Transaction.user_id == user.id).first()
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
@@ -331,12 +376,16 @@ def statistics(db: Session = Depends(get_db), user: User = Depends(current_user)
 
 @app.get("/api/budgets", response_model=list[BudgetResponse])
 def budgets(db: Session = Depends(get_db), user: User = Depends(current_user), month_year: Optional[str] = None) -> list[Budget]:
+    if store.mongo:
+        return store.mongo.list_budgets(user["id"], month_year)
     query = db.query(Budget).filter(Budget.user_id == user.id).order_by(Budget.month_year.desc(), Budget.category.asc())
     return query.filter(Budget.month_year == month_year).all() if month_year else query.all()
 
 
 @app.post("/api/budgets", response_model=BudgetResponse, status_code=201)
 def create_or_update_budget(payload: BudgetCreate, db: Session = Depends(get_db), user: User = Depends(current_user)) -> Budget:
+    if store.mongo:
+        return store.mongo.save_budget(user["id"], payload.category, payload.amount, payload.month_year)
     budget = db.query(Budget).filter_by(category=payload.category, month_year=payload.month_year, user_id=user.id).first()
     if budget:
         budget.amount = payload.amount
@@ -350,6 +399,11 @@ def create_or_update_budget(payload: BudgetCreate, db: Session = Depends(get_db)
 
 @app.put("/api/budgets/{budget_id}", response_model=BudgetResponse)
 def update_budget(budget_id: int, payload: BudgetCreate, db: Session = Depends(get_db), user: User = Depends(current_user)) -> Budget:
+    if store.mongo:
+        budget = store.mongo.update_budget(budget_id, user["id"], payload.model_dump())
+        if not budget:
+            raise HTTPException(status_code=404, detail="Budget not found")
+        return budget
     budget = db.query(Budget).filter(Budget.id == budget_id, Budget.user_id == user.id).first()
     if not budget:
         raise HTTPException(status_code=404, detail="Budget not found")
