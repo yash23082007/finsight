@@ -81,7 +81,18 @@ frontend is not using the same-origin Vercel rewrite.
 
 ## Deploy to Vercel
 
-This repository is configured as a single Vercel project:
+This repository deploys as one Vercel project with two services defined in
+`vercel.json`:
+
+- `app` is the FastAPI service, using `api/index.py`, and is public at `/api/*`.
+- `frontend` is the Vite service and is public at all other paths.
+
+There are no service bindings because the browser calls the API through the
+public same-origin `/api` rewrite; neither service makes a direct runtime call
+to the other. Services that need private communication later should use a
+Vercel service binding rather than a hardcoded hostname.
+
+To deploy:
 
 1. Import the GitHub repository into Vercel.
 2. Keep the project root set to the repository root.
@@ -90,9 +101,8 @@ This repository is configured as a single Vercel project:
    required. The default SQLite database is suitable only for local development
    and disposable demos because serverless filesystems are not persistent.
 
-Vercel builds the React app from `frontend/` and routes `/api/*` to the FastAPI
-function in `api/index.py`. The frontend uses same-origin `/api` requests by
-default. Set `VITE_API_URL` only when deploying the API separately.
+The frontend uses same-origin `/api` requests by default. Set `VITE_API_URL`
+only when deploying the API separately.
 
 For production persistence, use a hosted SQLAlchemy-compatible database and set
 `DATABASE_URL` to its connection string. The demo data is loaded from
