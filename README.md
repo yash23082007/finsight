@@ -99,7 +99,9 @@ To deploy:
 3. Deploy with the included `vercel.json`.
 4. Add `DATABASE_URL` as a Vercel environment variable if persistent storage is
    required. The default SQLite database is suitable only for local development
-   and disposable demos because serverless filesystems are not persistent.
+   and disposable demos because serverless filesystems are not persistent. When
+   `DATABASE_URL` is not set on Vercel, the API uses `/tmp/finsight.db`, which is
+   writable but ephemeral.
 
 The frontend uses same-origin `/api` requests by default. Set `VITE_API_URL`
 only when deploying the API separately.
