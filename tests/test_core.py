@@ -28,7 +28,7 @@ def test_data_cleaner():
     df_raw = pd.DataFrame({
         'date': ['2023-01-01', 'invalid', '2023-01-01'],
         'description': ['Test', 'Test 2', 'Test'],
-        'amount': ['$100', '200', '$100'],
+        'amount': ['$100', '200', '₹1,250.50'],
         'type': ['Expense', 'Income', 'Expense']
     })
     
@@ -38,6 +38,7 @@ def test_data_cleaner():
     # because two real purchases can share date, description, and amount.
     assert len(df_clean) == 2
     assert df_clean.iloc[0]['amount'] == 100.0
+    assert df_clean.iloc[1]['amount'] == 1250.5
     assert 'transaction_id' in df_clean.columns
 
 def test_health_score():

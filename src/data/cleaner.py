@@ -29,7 +29,7 @@ class DataCleaner:
         # Handle date parsing
         if 'date' in df_clean.columns:
             df_clean['date'] = pd.to_datetime(df_clean['date'], errors='coerce', format='mixed', dayfirst=True)
-            invalid_dates = df_clean['date'].isna().sum()
+            invalid_dates = int(df_clean['date'].isna().sum())
             if invalid_dates > 0:
                 report["invalid_rows_removed"] += invalid_dates
                 df_clean = df_clean.dropna(subset=['date'])
@@ -37,10 +37,10 @@ class DataCleaner:
         # Handle amount parsing
         if 'amount' in df_clean.columns:
             # Remove any currency symbols and commas
-            df_clean['amount'] = df_clean['amount'].astype("string").str.replace(r"[₹$,]", "", regex=True)
+            df_clean['amount'] = df_clean['amount'].astype("string").str.replace(r"[₹$€£¥,\s]", "", regex=True)
             df_clean['amount'] = pd.to_numeric(df_clean['amount'], errors='coerce')
             
-            invalid_amounts = df_clean['amount'].isna().sum()
+            invalid_amounts = int(df_clean['amount'].isna().sum())
             if invalid_amounts > 0:
                 report["invalid_rows_removed"] += invalid_amounts
                 df_clean = df_clean.dropna(subset=['amount'])

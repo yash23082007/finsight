@@ -57,7 +57,7 @@ class ExpenseForecaster:
 
         # Forecast
         last_idx = monthly['time_idx'].max()
-        future_idx = np.arange(last_idx + 1, last_idx + 1 + months_ahead).reshape(-1, 1)
+        future_idx = pd.DataFrame({"time_idx": np.arange(last_idx + 1, last_idx + 1 + months_ahead)})
         
         # Generate future dates correctly
         last_date = monthly['date'].max()

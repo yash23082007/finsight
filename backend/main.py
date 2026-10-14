@@ -154,7 +154,7 @@ def set_auth_cookie(response: Response, token: str) -> None:
 
 
 def auth_secret() -> bytes:
-    value = os.getenv("AUTH_SECRET")
+    value = (os.getenv("AUTH_SECRET") or "").strip()
     if not value or len(value) < 32:
         raise HTTPException(status_code=503, detail="AUTH_SECRET must be at least 32 characters")
     return value.encode()
@@ -475,19 +475,6 @@ async def import_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
     valid, report = DataValidator.validate_csv(frame)
     if not valid:
         raise HTTPException(status_code=422, detail=report)
-    return load_dataframe(db, frame, user)
-
-
-@app.post("/api/import/sample")
-def import_sample(db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict[str, Any]:
-    sample_path = os.path.join(APP_DIR, "data", "raw", "synthetic_data.csv")
-    try:
-        frame = pd.read_csv(sample_path)
-    except (OSError, ValueError) as exc:
-        raise HTTPException(status_code=500, detail="Synthetic sample data is unavailable") from exc
-    valid, report = DataValidator.validate_csv(frame)
-    if not valid:
-        raise HTTPException(status_code=500, detail=report)
     return load_dataframe(db, frame, user)
 
 

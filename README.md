@@ -1,56 +1,60 @@
 # FinSight
 
-FinSight is a React and FastAPI personal finance analyzer. It turns transaction
-data into interactive dashboards, spending analysis, machine-learning insights,
-budgets, and financial health metrics.
+FinSight is a production-style personal finance analyzer with a React frontend and a Python analytics backend. It turns transaction data into dashboards, spending insights, forecast estimates, and money-health scoring using a small but practical data-science pipeline.
 
-The application is designed for educational and analytical use.
+The project is designed for educational analysis and lightweight personal finance tracking.
 
-## Features
+## What the project does
 
-- Financial overview with income, expenses, savings, and recent activity.
-- Transaction search and filtering.
-- Expense categorization with TF-IDF and logistic regression.
-- Anomaly detection with Isolation Forest.
-- Expense forecasting with linear regression.
-- Budget and monthly analysis.
-- Deterministic insights generated from cleaned transaction data.
-- CSV import and export.
-- FastAPI OpenAPI documentation.
+- Tracks income and expense transactions.
+- Calculates dashboard totals, monthly trends, and category breakdowns.
+- Cleans CSV imports and validates required transaction columns.
+- Predicts expense categories using TF-IDF + logistic regression.
+- Flags unusual spending with an Isolation Forest-based anomaly detector.
+- Forecasts next months of expenses with linear regression.
+- Produces deterministic financial-health insights and scores.
+- Supports SQLite for local development and optional PostgreSQL/MongoDB when configured.
 
-## Stack
+## Tech stack
 
-- **Frontend:** React 18, Vite, React Router, Axios, Recharts, and Lucide React.
-- **API:** FastAPI, Uvicorn, Pydantic, and SQLAlchemy.
-- **Analytics:** Pandas, NumPy, SciPy, and scikit-learn.
-- **Database:** SQLite locally, or PostgreSQL/Neon in production. MongoDB is
-  supported only when `MONGODB_URI` is explicitly configured.
+- Frontend: React 18, Vite, React Router, Axios, Recharts
+- API: FastAPI, Pydantic, SQLAlchemy, Uvicorn
+- Data science: Pandas, NumPy, SciPy, scikit-learn
+- Database: SQLite locally; PostgreSQL/Neon or MongoDB when configured
 
 ## Project structure
 
 ```text
 finsight/
-├── main.py                 # Vercel FastAPI service entry point
-├── api/index.py            # Compatibility serverless entry point
-├── backend/main.py        # FastAPI application
-├── frontend/              # React/Vite client
+├── README.md               # Project overview and setup
+├── it.md                  # Python data-science usage overview
+├── main.py                # Vercel serverless FastAPI entry point
+├── api/index.py           # Compatibility entry for serverless routes
+├── backend/main.py        # Main FastAPI application
+├── frontend/              # React + Vite dashboard app
 ├── src/
 │   ├── analytics/         # Health score and insight generation
-│   ├── data/              # Validation and cleaning
-│   ├── database/          # SQLAlchemy models and repository
-│   └── ml/                # Categorization, anomaly detection, forecasting
-├── data/raw/              # Demo input data
+│   ├── data/              # CSV validation and cleaning
+│   ├── database/          # SQLAlchemy models, repository, database setup
+│   ├── ml/                # ML models for categorization, anomaly detection, forecasting
+│   └── utils/             # Logging and formatting helpers
+├── data/
+│   ├── raw/               # Demo data source files
+│   └── processed/         # SQLite output cache and generated DBs
 ├── scripts/               # Utility scripts
-├── tests/                 # Pytest tests
-├── requirements.txt       # Python dependencies
-└── vercel.json            # Vercel build and routing configuration
+├── tests/                 # Pytest verification suite
+├── requirements.txt      # Runtime dependencies
+├── requirements-dev.txt   # Dev and test dependencies
+├── pytest.ini            # Pytest configuration
+├── vercel.json           # Vercel deployment config
+└── .env.example          # Environment variable template
 ```
 
-## Local development
+## Quick start
 
-### Install Python dependencies
+### 1) Create a virtual environment
 
-From the project root:
+Windows PowerShell:
 
 ```powershell
 python -m venv venv
@@ -58,18 +62,23 @@ python -m venv venv
 pip install -r requirements-dev.txt
 ```
 
-### Start the API
+macOS/Linux:
+
+```bash
+python3 -m venv venv
+. venv/bin/activate
+pip install -r requirements-dev.txt
+```
+
+### 2) Start the API
 
 ```powershell
 .\venv\Scripts\python.exe -m uvicorn backend.main:app --reload --port 8000
 ```
 
-The API runs at `http://localhost:8000`; interactive documentation is at
-`http://localhost:8000/docs`.
+The API runs at `http://localhost:8000` and the documentation is available at `http://localhost:8000/docs`.
 
-### Start the frontend
-
-In a second terminal:
+### 3) Start the frontend
 
 ```powershell
 cd frontend
@@ -77,104 +86,70 @@ npm install
 npm run dev
 ```
 
-The frontend runs at `http://localhost:5173`. During local development, set
-`VITE_API_URL=http://localhost:8000/api` in `frontend/.env.local` if the
-frontend is not using the same-origin Vercel rewrite.
+The frontend runs at `http://localhost:5173`.
 
-On macOS/Linux, use:
-
-```bash
-python3 -m venv venv
-. venv/bin/activate
-pip install -r requirements-dev.txt
-python -m uvicorn backend.main:app --reload --port 8000
-```
-
-## Deploy to Vercel
-
-This repository deploys as one Vercel project with two services defined in
-`vercel.json`:
-
-- `app` is the FastAPI service, using `main.py`, and is public at `/api/*`.
-- `frontend` is the Vite service and is public at all other paths.
-
-There are no service bindings because the browser calls the API through the
-public same-origin `/api` rewrite; neither service makes a direct runtime call
-to the other. Services that need private communication later should use a
-Vercel service binding rather than a hardcoded hostname.
-
-To deploy:
-
-1. Import the GitHub repository into Vercel.
-2. Keep the project root set to the repository root.
-3. Deploy with the included `vercel.json`.
-4. Add `DATABASE_URL` as a Vercel environment variable if persistent storage is
-   required. The default SQLite database is suitable only for local development
-   and disposable demos because serverless filesystems are not persistent. When
-   `DATABASE_URL` is not set on Vercel, the API uses `/tmp/finsight.db`, which is
-   writable but ephemeral.
-
-The frontend uses same-origin `/api` requests by default. Client-side navigation
-uses hash routes (`/#/transactions`, `/#/budget`, etc.) so every route works on
-Vercel static hosting without requiring server-side SPA rewrites. Set
-`VITE_API_URL` only when deploying the API separately.
-
-For production persistence, use a hosted SQLAlchemy-compatible database and set
-`DATABASE_URL` to its connection string. New accounts start with no
-transactions; users can add records individually or import their own CSV.
-For Neon, use the pooled connection string and add `AUTH_SECRET` as a separate
-Vercel environment variable containing a long random value.
-
-The API rejects authentication when `AUTH_SECRET` is absent or shorter than
-32 characters. Never commit `.env` files or real connection
-strings; `.env.example` contains placeholders only. CSV uploads are limited to
-4 MB and 100,000 rows. Exported text fields are escaped against spreadsheet
-formula injection. Browser sessions use an HttpOnly cookie; the token is not
-stored in localStorage.
-
-## CSV data
-
-Imported files must include:
-
-```text
-date, description, amount, type
-```
-
-Optional columns are `transaction_id`, `category`, `payment_method`, `merchant`,
-and `notes`. The cleaning pipeline normalizes dates and currency-formatted
-amounts, removes invalid rows and supplies defaults for optional fields. Import
-reports include the number of rows read, invalid rows, and final rows.
-Identical repeated transactions are preserved; supplied duplicate transaction
-IDs are replaced with generated IDs.
-
-The checked-in `data/raw/synthetic_data.csv` is synthetic demo data, not bank
-data. Amounts are stored as fixed-precision decimals in SQL databases.
-
-## Analytics methodology and limitations
-
-- Categorization uses a TF-IDF/logistic-regression pipeline with balanced
-  classes. Evaluation uses merchant-grouped holdout data to avoid reporting
-  inflated scores from the same merchant appearing in both sets. Predictions
-  below the confidence threshold are returned as **Needs review**.
-- Anomaly detection uses deterministic Isolation Forest features based on
-  `log1p(amount)` and category-relative robust z-scores. It requires at least
-  ten expense rows and reports an explainable typical-spend multiple. It is a
-  review aid, not a fraud detector.
-- Forecasts aggregate completed months only, clamp negative predictions to zero,
-  and report descriptive regression metrics alongside naive and three-month
-  average baselines. At least six completed months are required.
-- The health score is a heuristic weighted across savings rate, expense control,
-  and monthly consistency over the latest three months. It is not a validated
-  financial or credit score.
-
-## Tests
+### 4) Run tests
 
 ```powershell
-.\venv\Scripts\python.exe -m pytest
+.\venv\Scripts\python.exe -m pytest -q
 ```
+
+## Environment variables
+
+Create a local `.env` file from the included template if needed:
+
+- `DATABASE_URL` for a PostgreSQL or SQLite override
+- `AUTH_SECRET` for signed auth tokens (minimum 32 characters)
+- `MONGODB_URI` and `MONGODB_DATABASE` for optional MongoDB mode
+
+Never commit real secrets or production connection strings.
+
+## CSV import rules
+
+Imported files should include:
+
+```text
+date,description,amount,type
+```
+
+Optional columns include `transaction_id`, `category`, `payment_method`, `merchant`, and `notes`.
+
+The cleaning pipeline:
+
+- normalizes dates and currency strings
+- removes invalid rows
+- fills missing optional fields with defaults
+- preserves repeated transactions while generating fresh IDs for blanks or duplicates
+
+## Data science and analytics model
+
+This project uses Python for data science in the backend to power its financial intelligence:
+
+- `pandas` cleans and reshapes transaction data
+- `numpy` and `scipy` support numeric transforms and forecasting logic
+- `scikit-learn` powers categorization, anomaly detection, and forecasting
+- `SQLAlchemy` stores cleaned results in SQLite/PostgreSQL for app queries
+
+The main ML/analytics modules are:
+
+- `src/data/cleaner.py` for import normalization and cleanup
+- `src/data/validator.py` for schema validation
+- `src/ml/categorization.py` for category prediction
+- `src/ml/anomaly_detection.py` for outlier detection
+- `src/ml/forecasting.py` for monthly expense prediction
+- `src/analytics/health_score.py` for heuristic scoring
+- `src/analytics/insights.py` for deterministic summaries
+
+## Deployment notes
+
+The project is set up for Vercel deployment with a FastAPI app and a separate frontend static build:
+
+- `app` handles `/api/*` routes
+- `frontend` serves the UI on other routes
+- same-origin `/api` calls are preferred for local and hosted deployments
+
+When deploying to production, set `DATABASE_URL` to a persistent SQL database. The built-in SQLite file is suitable for demos and local development only.
 
 ## Disclaimer
 
-FinSight is an educational financial analysis tool and does not provide
-professional financial advice. Forecasts depend on historical data, and anomaly
-detection identifies unusual patterns but does not prove fraud.
+FinSight is an educational financial tool. It does not replace professional financial advice, tax advice, or credit scoring. Forecasts and anomaly alerts are decision-support tools rather than guaranteed predictions.

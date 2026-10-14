@@ -112,8 +112,8 @@ class MongoStore:
 
 class Store:
     def __init__(self) -> None:
-        uri = os.getenv("MONGODB_URI")
-        database_name = os.getenv("MONGODB_DATABASE", "finsight")
+        uri = (os.getenv("MONGODB_URI") or "").strip()
+        database_name = (os.getenv("MONGODB_DATABASE") or "finsight").strip() or "finsight"
         self.mongo = MongoStore(uri, database_name) if uri else None
         if not self.mongo:
             init_db()
