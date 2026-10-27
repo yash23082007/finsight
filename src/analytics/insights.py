@@ -10,10 +10,12 @@ class InsightEngine:
             return [{"title": "No Data", "description": "Add transactions to see insights.", "type": "info"}]
 
         insights = []
-        df['date'] = pd.to_datetime(df['date'])
-        
         # Add Month-Year column for aggregation
         df_copy = df.copy()
+        df_copy['date'] = pd.to_datetime(df_copy['date'], errors='coerce')
+        df_copy = df_copy.dropna(subset=['date'])
+        if df_copy.empty:
+            return [{"title": "No Data", "description": "Add valid dated transactions to see insights.", "type": "info"}]
         df_copy['month_year'] = df_copy['date'].dt.to_period('M')
 
         # 1. Largest Expense Category Overall
@@ -23,7 +25,7 @@ class InsightEngine:
             top_cat = cat_totals.idxmax()
             top_amt = cat_totals.max()
             total_exp = expenses['amount'].sum()
-            pct = (top_amt / total_exp) * 100
+            pct = (top_amt / total_exp) * 100 if total_exp else 0
             
             insights.append({
                 "title": "Largest Expense Category",

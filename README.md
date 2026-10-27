@@ -1,6 +1,6 @@
 # FinSight
 
-FinSight is a production-style personal finance analyzer with a React frontend and a Python analytics backend. It turns transaction data into dashboards, spending insights, forecast estimates, and money-health scoring using a small but practical data-science pipeline.
+FinSight is a personal finance analyzer with a React frontend and a Python analytics backend. It turns transaction data into dashboards, spending insights, and money-health scoring using clear, rule-based analysis.
 
 The project is designed for educational analysis and lightweight personal finance tracking.
 
@@ -9,9 +9,7 @@ The project is designed for educational analysis and lightweight personal financ
 - Tracks income and expense transactions.
 - Calculates dashboard totals, monthly trends, and category breakdowns.
 - Cleans CSV imports and validates required transaction columns.
-- Predicts expense categories using TF-IDF + logistic regression.
-- Flags unusual spending with an Isolation Forest-based anomaly detector.
-- Forecasts next months of expenses with linear regression.
+- Analyzes recorded categories and monthly spending without predictive models.
 - Produces deterministic financial-health insights and scores.
 - Supports SQLite for local development and optional PostgreSQL/MongoDB when configured.
 
@@ -19,7 +17,7 @@ The project is designed for educational analysis and lightweight personal financ
 
 - Frontend: React 18, Vite, React Router, Axios, Recharts
 - API: FastAPI, Pydantic, SQLAlchemy, Uvicorn
-- Data science: Pandas, NumPy, SciPy, scikit-learn
+- Analytics: Pandas with rule-based summaries
 - Database: SQLite locally; PostgreSQL/Neon or MongoDB when configured
 
 ## Project structure
@@ -36,7 +34,6 @@ finsight/
 │   ├── analytics/         # Health score and insight generation
 │   ├── data/              # CSV validation and cleaning
 │   ├── database/          # SQLAlchemy models, repository, database setup
-│   ├── ml/                # ML models for categorization, anomaly detection, forecasting
 │   └── utils/             # Logging and formatting helpers
 ├── data/
 │   ├── raw/               # Demo data source files
@@ -121,22 +118,17 @@ The cleaning pipeline:
 - fills missing optional fields with defaults
 - preserves repeated transactions while generating fresh IDs for blanks or duplicates
 
-## Data science and analytics model
+## Data processing and analytics
 
-This project uses Python for data science in the backend to power its financial intelligence:
+The backend uses Python to clean transaction data and produce financial summaries:
 
-- `pandas` cleans and reshapes transaction data
-- `numpy` and `scipy` support numeric transforms and forecasting logic
-- `scikit-learn` powers categorization, anomaly detection, and forecasting
+- `pandas` cleans and aggregates transaction data
 - `SQLAlchemy` stores cleaned results in SQLite/PostgreSQL for app queries
 
-The main ML/analytics modules are:
+The main data and analytics modules are:
 
 - `src/data/cleaner.py` for import normalization and cleanup
 - `src/data/validator.py` for schema validation
-- `src/ml/categorization.py` for category prediction
-- `src/ml/anomaly_detection.py` for outlier detection
-- `src/ml/forecasting.py` for monthly expense prediction
 - `src/analytics/health_score.py` for heuristic scoring
 - `src/analytics/insights.py` for deterministic summaries
 
@@ -152,4 +144,4 @@ When deploying to production, set `DATABASE_URL` to a persistent SQL database. T
 
 ## Disclaimer
 
-FinSight is an educational financial tool. It does not replace professional financial advice, tax advice, or credit scoring. Forecasts and anomaly alerts are decision-support tools rather than guaranteed predictions.
+FinSight is an educational financial tool. It does not replace professional financial advice, tax advice, or credit scoring. Scores and insights are informational summaries, not financial recommendations.

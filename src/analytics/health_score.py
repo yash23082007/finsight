@@ -7,7 +7,11 @@ class HealthScoreCalculator:
         if df.empty:
             return {"score": 0, "components": {}, "message": "No data"}
             
-        df['date'] = pd.to_datetime(df['date'])
+        df = df.copy()
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        df = df.dropna(subset=['date'])
+        if df.empty:
+            return {"score": 0, "components": {}, "message": "No valid dated transactions"}
         
         # Get last 3 months
         recent_date = df['date'].max()

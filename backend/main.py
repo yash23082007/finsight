@@ -470,7 +470,9 @@ async def import_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
         frame = pd.read_csv(io.BytesIO(content), nrows=MAX_UPLOAD_ROWS + 1)
         if len(frame) > MAX_UPLOAD_ROWS:
             raise HTTPException(status_code=413, detail="CSV files must contain 100,000 rows or fewer")
-    except Exception as exc:
+    except HTTPException:
+        raise
+    except (pd.errors.ParserError, UnicodeDecodeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"Could not read CSV: {exc}") from exc
     valid, report = DataValidator.validate_csv(frame)
     if not valid:

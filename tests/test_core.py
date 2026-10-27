@@ -1,10 +1,8 @@
 import pytest
 import pandas as pd
-import numpy as np
 from src.data.cleaner import DataCleaner
 from src.data.validator import DataValidator
 from src.analytics.health_score import HealthScoreCalculator
-from src.ml.forecasting import ExpenseForecaster
 
 def test_data_validator():
     df_valid = pd.DataFrame({
@@ -57,20 +55,3 @@ def test_health_score():
     
     res = HealthScoreCalculator.calculate_score(df)
     assert res['score'] > 80 # Should be a very high score
-
-
-def test_forecaster_keeps_completed_historical_month():
-    dates = pd.date_range("2023-01-01", periods=6, freq="MS")
-    frame = pd.DataFrame({
-        "date": dates + pd.Timedelta(days=10),
-        "type": ["Expense"] * 6,
-        "amount": [100, 110, 120, 130, 140, 150],
-    })
-
-    result, message = ExpenseForecaster().forecast_next_months(frame)
-
-    assert message == "Forecast generated successfully."
-    historical, forecast, metrics = result
-    assert len(historical) == 6
-    assert len(forecast) == 3
-    assert "three_month_average_mae" in metrics

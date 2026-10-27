@@ -24,7 +24,7 @@ class DataCleaner:
         df_clean = df.copy()
         
         # Normalize column names
-        df_clean.columns = df_clean.columns.str.lower().str.strip()
+        df_clean.columns = df_clean.columns.astype(str).str.lower().str.strip()
         
         # Handle date parsing
         if 'date' in df_clean.columns:
