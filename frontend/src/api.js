@@ -6,7 +6,8 @@ const api = axios.create({
 });
 
 export function formatApiError(error, fallback = 'Something went wrong. Please try again.') {
-  const detail = error?.response?.data?.detail;
+  const data = error?.response?.data;
+  const detail = data?.detail;
   if (typeof detail === 'string' && detail.trim()) return detail;
   if (Array.isArray(detail)) {
     const messages = detail
@@ -18,6 +19,13 @@ export function formatApiError(error, fallback = 'Something went wrong. Please t
     const messages = [detail.message, detail.error, ...(Array.isArray(detail.errors) ? detail.errors : [])]
       .filter((message) => typeof message === 'string' && message.trim());
     if (messages.length) return messages.join(' ');
+  }
+  const responseMessage = [data?.message, data?.error]
+    .find((message) => typeof message === 'string' && message.trim());
+  if (responseMessage) return responseMessage;
+  if (error?.response?.status) return `${fallback} (API returned HTTP ${error.response.status}.)`;
+  if (error?.code === 'ERR_NETWORK' || error?.request) {
+    return 'Could not reach the FinSight API. Check the Vercel /api rewrite and Render service logs.';
   }
   return fallback;
 }
