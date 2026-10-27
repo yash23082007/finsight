@@ -1,0 +1,6 @@
+date,description,amount,type,category,payment_method,merchant,notes
+2026-10-01,Monthly salary,75000,Income,Salary,Bank Transfer,Northstar Labs,October salary
+2026-10-03,Weekly groceries,2450.75,Expense,Food,UPI,Fresh Basket,Groceries
+2026-10-05,Metro recharge,500,Expense,Travel,UPI,City Metro,Monthly pass
+2026-10-08,Electricity bill,1840,Expense,Bills,UPI,Power Utility,October bill
+2026-10-10,Freelance design work,12000,Income,Freelance,Bank Transfer,Studio Client,Project payment
