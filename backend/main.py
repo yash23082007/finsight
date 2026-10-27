@@ -30,16 +30,34 @@ from src.data.validator import DataValidator
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024
 MAX_UPLOAD_ROWS = 100_000
-
-app = FastAPI(title="FinSight API", version="1.0.0", description="REST API for personal financial analysis")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+CORS_ORIGINS = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv("CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]
+CORS_ORIGINS.extend(
+    origin
+    for origin in (
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5174",
-    ],
+    )
+    if origin not in CORS_ORIGINS
+)
+COOKIE_SAMESITE = (os.getenv("COOKIE_SAMESITE") or "lax").strip().lower()
+if COOKIE_SAMESITE not in {"lax", "strict", "none"}:
+    raise ValueError("COOKIE_SAMESITE must be 'lax', 'strict', or 'none'")
+COOKIE_SECURE = (
+    bool(os.getenv("VERCEL"))
+    or COOKIE_SAMESITE == "none"
+    or (os.getenv("COOKIE_SECURE") or "").strip().lower() in {"1", "true", "yes"}
+)
+
+app = FastAPI(title="FinSight API", version="1.0.0", description="REST API for personal financial analysis")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -147,8 +165,8 @@ def set_auth_cookie(response: Response, token: str) -> None:
         "finsight_token",
         token,
         httponly=True,
-        secure=bool(os.getenv("VERCEL")),
-        samesite="lax",
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
         max_age=30 * 24 * 3600,
     )
 
@@ -251,6 +269,7 @@ def startup() -> None:
 
 
 @app.get("/api/health")
+@app.get("/healthz", include_in_schema=False)
 def health() -> dict[str, str]:
     try:
         store.ping()

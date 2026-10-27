@@ -134,13 +134,33 @@ The main data and analytics modules are:
 
 ## Deployment notes
 
-The project is set up for Vercel deployment with a FastAPI app and a separate frontend static build:
+The project supports a Vercel deployment with a FastAPI app and a separate frontend static build:
 
 - `app` handles `/api/*` routes
 - `frontend` serves the UI on other routes
 - same-origin `/api` calls are preferred for local and hosted deployments
 
-When deploying to production, set `DATABASE_URL` to a persistent SQL database. The built-in SQLite file is suitable for demos and local development only.
+### Render API with the Vercel frontend
+
+To host the API on Render while keeping the React frontend on Vercel, create a Render Web Service from the repository root:
+
+- Build command: `pip install -r requirements.txt`
+- Start command: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
+- Root directory: leave blank
+- Health check path: `/healthz`
+
+Set these Render environment variables:
+
+- `AUTH_SECRET`: generate a random secret with at least 32 characters.
+- `MONGODB_URI`: the MongoDB Atlas connection string, with a URL-encoded database password.
+- `MONGODB_DATABASE`: `finsight`
+- `CORS_ORIGINS`: the exact Vercel origin, for example `https://finsight-kohl-kappa.vercel.app`
+- `COOKIE_SAMESITE`: `none`
+- `COOKIE_SECURE`: `true`
+
+When using MongoDB, leave `DATABASE_URL` unset. In the Vercel project settings, set `VITE_API_URL` to the Render service URL followed by `/api` (for example, `https://your-service.onrender.com/api`) and redeploy the frontend. The Render API serves only the backend; Vercel continues to serve the React app.
+
+For a SQL deployment instead, set `DATABASE_URL` to a persistent PostgreSQL connection string. Local SQLite storage is suitable for development, not persistent hosting.
 
 ## Disclaimer
 
