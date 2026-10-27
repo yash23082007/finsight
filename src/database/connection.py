@@ -1,9 +1,9 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 import os
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
-load_dotenv()
+load_dotenv(find_dotenv(usecwd=True))
 
 configured_database_url = os.getenv("DATABASE_URL")
 if os.getenv("VERCEL") and (
@@ -19,7 +19,10 @@ if DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
 if DATABASE_URL.startswith("sqlite:///data/"):
-    os.makedirs("data/processed", exist_ok=True)
+    try:
+        os.makedirs("data/processed", exist_ok=True)
+    except OSError:
+        pass
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite:") else {}
 engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)

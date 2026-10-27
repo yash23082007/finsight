@@ -45,6 +45,18 @@ CORS_ORIGINS.extend(
     )
     if origin not in CORS_ORIGINS
 )
+# Auto-detect Vercel deployment URL
+_vercel_url = os.getenv("VERCEL_URL")
+if _vercel_url:
+    for scheme in ("https://", "http://"):
+        candidate = f"{scheme}{_vercel_url}"
+        if candidate not in CORS_ORIGINS:
+            CORS_ORIGINS.append(candidate)
+_vercel_project = os.getenv("VERCEL_PROJECT_PRODUCTION_URL")
+if _vercel_project:
+    candidate = f"https://{_vercel_project}"
+    if candidate not in CORS_ORIGINS:
+        CORS_ORIGINS.append(candidate)
 COOKIE_SAMESITE = (os.getenv("COOKIE_SAMESITE") or "lax").strip().lower()
 if COOKIE_SAMESITE not in {"lax", "strict", "none"}:
     raise ValueError("COOKIE_SAMESITE must be 'lax', 'strict', or 'none'")

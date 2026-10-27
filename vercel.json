@@ -1,63 +1,23 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "services": {
-    "app": {
-      "root": ".",
-      "framework": "fastapi",
-      "entrypoint": "main.py"
-    },
-    "frontend": {
-      "root": "frontend",
-      "framework": "vite"
-    }
-  },
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/dist",
+  "framework": null,
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://finsight-ztxq.onrender.com/api/:path*"
+      "destination": "/api/index.py"
     },
     {
-      "source": "/(.*)",
-      "destination": {
-        "service": "frontend"
-      }
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
     }
   ],
-  "redirects": [
+  "headers": [
     {
-      "source": "/transactions",
-      "destination": "/#/transactions",
-      "permanent": false
-    },
-    {
-      "source": "/expense-analysis",
-      "destination": "/#/expense-analysis",
-      "permanent": false
-    },
-    {
-      "source": "/budget",
-      "destination": "/#/budget",
-      "permanent": false
-    },
-    {
-      "source": "/monthly-summary",
-      "destination": "/#/monthly-summary",
-      "permanent": false
-    },
-    {
-      "source": "/insights",
-      "destination": "/#/insights",
-      "permanent": false
-    },
-    {
-      "source": "/import-data",
-      "destination": "/#/import-data",
-      "permanent": false
-    },
-    {
-      "source": "/settings",
-      "destination": "/#/settings",
-      "permanent": false
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" }
+      ]
     }
   ]
 }
