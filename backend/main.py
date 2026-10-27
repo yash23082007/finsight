@@ -280,6 +280,9 @@ def health() -> dict[str, str]:
 
 @app.post("/api/auth/signup", response_model=AuthResponse, status_code=201)
 def signup(payload: AuthPayload, response: Response, db: Session = Depends(get_db)) -> AuthResponse:
+    # Validate token configuration before persisting a user. Otherwise a missing
+    # AUTH_SECRET can create an account that the user cannot sign into.
+    auth_secret()
     email = payload.email.lower()
     if store.mongo:
         if store.mongo.find_user_by_email(email):
