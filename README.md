@@ -158,7 +158,7 @@ Set these Render environment variables:
 - `COOKIE_SAMESITE`: `none`
 - `COOKIE_SECURE`: `true`
 
-When using MongoDB, leave `DATABASE_URL` unset. In the Vercel project settings, set `VITE_API_URL` to the Render service URL followed by `/api` (for example, `https://your-service.onrender.com/api`) and redeploy the frontend. The Render API serves only the backend; Vercel continues to serve the React app.
+When using MongoDB, leave `DATABASE_URL` unset. The Vercel rewrite in `vercel.json` proxies `/api/*` requests to the Render service, keeping browser requests on the Vercel origin. Leave `VITE_API_URL` unset (or set it to `/api`) and redeploy the frontend. The Render API serves only the backend; Vercel continues to serve the React app.
 
 For a SQL deployment instead, set `DATABASE_URL` to a persistent PostgreSQL connection string. Local SQLite storage is suitable for development, not persistent hosting.
 

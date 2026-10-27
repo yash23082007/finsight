@@ -13,10 +13,8 @@
   },
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": {
-        "service": "app"
-      }
+      "source": "/api/:path*",
+      "destination": "https://finsight-ztxq.onrender.com/api/:path*"
     },
     {
       "source": "/(.*)",
