@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { HashRouter, useLocation, useNavigate } from 'react-router-dom';
-import api from './api';
+import api, { formatApiError } from './api';
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -72,7 +72,7 @@ function AuthScreen({ onAuthenticated }) {
     setBusy(true); setError('');
     api.post(`/auth/${mode}`, form).then((response) => {
       onAuthenticated(response.data.user);
-    }).catch((requestError) => setError(requestError.response?.data?.detail || 'Unable to authenticate. Please try again.')).finally(() => setBusy(false));
+    }).catch((requestError) => setError(formatApiError(requestError, 'Unable to authenticate. Please try again.'))).finally(() => setBusy(false));
   };
   return <div className="auth-shell"><div className="auth-card"><div className="auth-brand"><span className="brand-mark">F</span><strong>finsight</strong></div><p className="kicker">Your money, made clear</p><h1>{mode === 'login' ? 'Welcome back.' : 'Start your journey.'}</h1><p className="auth-copy">Securely track spending, understand your habits, and build a healthier financial future.</p><form onSubmit={submit} className="auth-form">{mode === 'signup' && <input required minLength="2" placeholder="Full name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />}<input required type="email" placeholder="Email address" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /><input required minLength="8" type="password" placeholder="Password (8+ characters)" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} />{error && <p className="form-error">{error}</p>}<button className="primary-button auth-submit" disabled={busy}>{busy ? 'Please wait...' : mode === 'login' ? 'Sign in' : 'Create account'}</button></form><p className="auth-switch">{mode === 'login' ? 'New to FinSight?' : 'Already have an account?'} <button onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); }}> {mode === 'login' ? 'Create an account' : 'Sign in'}</button></p></div></div>;
 }
@@ -112,10 +112,10 @@ function App({ user, onLogout }) {
 
   useEffect(() => { loadTransactions(); }, []);
 
-  const addTransaction = (payload) => api.post('/transactions', payload).then(() => { setShowTransactionForm(false); loadTransactions(); }).catch((error) => { throw new Error(error.response?.data?.detail || 'Could not save transaction.'); });
+  const addTransaction = (payload) => api.post('/transactions', payload).then(() => { setShowTransactionForm(false); loadTransactions(); }).catch((error) => { throw new Error(formatApiError(error, 'Could not save transaction.')); });
   const removeTransaction = (id) => {
     if (!window.confirm('Delete this transaction?')) return;
-    api.delete(`/transactions/${id}`).then(loadTransactions).catch((error) => setApiError(error.response?.data?.detail || 'Could not delete the transaction.'));
+    api.delete(`/transactions/${id}`).then(loadTransactions).catch((error) => setApiError(formatApiError(error, 'Could not delete the transaction.')));
   };
 
   const filteredTransactions = useMemo(() => {
@@ -235,8 +235,8 @@ function FeaturePage({ view, transactions, allTransactions, user, onAdd, onDelet
   const [message, setMessage] = useState('');
   const [budget, setBudget] = useState({ category: '', amount: '', month_year: localMonthKey(new Date()) });
   useEffect(() => {
-    if (view === 'Insights') api.get('/insights').then(({ data }) => setInsights(data)).catch((e) => setError(e.response?.data?.detail || 'Could not load insights.'));
-    if (view === 'Budget') api.get('/budgets').then(({ data }) => setBudgets(data)).catch((e) => setError(e.response?.data?.detail || 'Could not load budgets.'));
+    if (view === 'Insights') api.get('/insights').then(({ data }) => setInsights(data)).catch((e) => setError(formatApiError(e, 'Could not load insights.')));
+    if (view === 'Budget') api.get('/budgets').then(({ data }) => setBudgets(data)).catch((e) => setError(formatApiError(e, 'Could not load budgets.')));
   }, [view]);
   const descriptions = {
     Transactions: 'Review, search, and manage every transaction in one place.',
@@ -253,12 +253,12 @@ function FeaturePage({ view, transactions, allTransactions, user, onAdd, onDelet
     const file = event.target.files?.[0]; if (!file) return;
     setError(''); setMessage(''); const body = new FormData(); body.append('file', file);
     try { const { data } = await api.post('/import/csv', body); setMessage(`Imported ${data.imported} rows; ${data.report?.invalid_rows_removed || 0} invalid rows skipped.`); onRefresh(); }
-    catch (e) { setError(e.response?.data?.detail || 'CSV import failed.'); } finally { event.target.value = ''; }
+    catch (e) { setError(formatApiError(e, 'CSV import failed.')); } finally { event.target.value = ''; }
   };
   const saveBudget = async (event) => {
     event.preventDefault(); setError('');
     try { await api.post('/budgets', { ...budget, amount: Number(budget.amount) }); const { data } = await api.get('/budgets'); setBudgets(data); setBudget({ ...budget, category: '', amount: '' }); }
-    catch (e) { setError(e.response?.data?.detail || 'Could not save budget.'); }
+    catch (e) { setError(formatApiError(e, 'Could not save budget.')); }
   };
   return <div className="feature-view"><div className="feature-hero"><div><p className="kicker">FinSight workspace</p><h2>{view}</h2><p>{descriptions[view]}</p></div>{view === 'Transactions' && <button className="primary-button" onClick={onAdd}><Plus size={15} /> Add transaction</button>}{view === 'Import Data' && <label className="secondary-button upload-button"><Plus size={15} /> Choose CSV<input type="file" accept=".csv,text/csv" onChange={uploadCsv} /></label>}</div>
     {error && <p className="form-error" role="alert">{error}</p>}{message && <p className="success-message" role="status">{message}</p>}
