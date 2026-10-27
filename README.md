@@ -134,33 +134,22 @@ The main data and analytics modules are:
 
 ## Deployment notes
 
-The project supports a Vercel deployment with a FastAPI app and a separate frontend static build:
+The current `vercel.json` builds the Vite frontend and routes `/api/*` to the FastAPI function in `api/index.py`. Both run under the same Vercel origin, so leave `VITE_API_URL` unset or set it to `/api`.
 
-- `app` handles `/api/*` routes
-- `frontend` serves the UI on other routes
-- same-origin `/api` calls are preferred for local and hosted deployments
+Set these variables in the Vercel project for every environment you deploy (at least Production):
 
-### Render API with the Vercel frontend
-
-To host the API on Render while keeping the React frontend on Vercel, create a Render Web Service from the repository root:
-
-- Build command: `pip install -r requirements.txt`
-- Start command: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
-- Root directory: leave blank
-- Health check path: `/healthz`
-
-Set these Render environment variables:
-
-- `AUTH_SECRET`: generate a random secret with at least 32 characters.
+- `AUTH_SECRET`: a random secret at least 32 characters long.
 - `MONGODB_URI`: the MongoDB Atlas connection string, with a URL-encoded database password.
-- `MONGODB_DATABASE`: `finsight`
-- `CORS_ORIGINS`: the exact Vercel origin, for example `https://finsight-kohl-kappa.vercel.app`
-- `COOKIE_SAMESITE`: `none`
-- `COOKIE_SECURE`: `true`
+- `MONGODB_DATABASE`: `finsight`.
+- Leave `DATABASE_URL` unset when using MongoDB.
 
-When using MongoDB, leave `DATABASE_URL` unset. The Vercel rewrite in `vercel.json` proxies `/api/*` requests to the Render service, keeping browser requests on the Vercel origin. Leave `VITE_API_URL` unset (or set it to `/api`) and redeploy the frontend. The Render API serves only the backend; Vercel continues to serve the React app.
+The Vercel function reads Vercel environment variables; values configured only on Render or in a local `.env` file are not passed to it. Redeploy after changing Vercel environment variables. The app sets secure cookies automatically on Vercel; `COOKIE_SAMESITE=lax` is suitable for the same-origin setup.
 
-For a SQL deployment instead, set `DATABASE_URL` to a persistent PostgreSQL connection string. Local SQLite storage is suitable for development, not persistent hosting.
+### Optional Render API
+
+To run the API on Render instead, set the Vercel `/api/*` rewrite destination to `https://<your-render-service>.onrender.com/api/:path*` and keep `VITE_API_URL` unset or set to `/api`. Configure `AUTH_SECRET`, `MONGODB_URI`, `MONGODB_DATABASE`, `CORS_ORIGINS`, `COOKIE_SAMESITE`, and `COOKIE_SECURE` on the Render service. The current Vercel rewrite targets the Vercel function, so Render is not used by the frontend unless you switch that route.
+
+For a SQL deployment, set `DATABASE_URL` to a persistent PostgreSQL connection string. Local SQLite storage is suitable for development, not persistent hosting.
 
 ## Disclaimer
 
